@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#1f6f50">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Kosten">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>Kosten erfassen</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/icon-180.png">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<main>
+  <div class="kopf">
+    <h1 id="titel">Kosten erfassen</h1>
+    <select id="jahr" hidden aria-label="Jahr"></select>
+  </div>
+
+  <!-- Anmeldung -->
+  <div class="card" id="anmeldung" hidden>
+    <h2>Willkommen!</h2>
+    <div class="sub">Melde dich mit deinem Google-Konto an. Deine Daten bleiben in deinem eigenen Google Drive.</div>
+    <button class="haupt" id="anmelden">Mit Google anmelden</button>
+    <div class="meldung" id="meldungAnmeldung"></div>
+  </div>
+
+  <!-- Erster Start: bestehende Tabelle verbinden oder neu anlegen -->
+  <div class="card" id="einrichten" hidden>
+    <h2>Deinen Finanzplaner einrichten</h2>
+    <div id="kandidatenBox" hidden>
+      <div class="sub">Diese Tabellen in deinem Drive könnten dein Finanzplaner sein. Tippe auf „Verbinden“, um sie zu nutzen:</div>
+      <ul id="kandidaten"></ul>
+      <div class="sub" style="margin-top:12px">Oder lege einen neuen, leeren Finanzplaner an:</div>
+    </div>
+    <label for="name">Dein Name</label>
+    <input id="name" autocomplete="given-name">
+    <button class="haupt" id="neuAnlegen">Neuen Finanzplaner anlegen</button>
+    <div class="meldung" id="meldungEinrichten"></div>
+  </div>
+
+  <!-- Erfassen -->
+  <div class="card" id="formular" hidden>
+    <label for="monat">Monat</label>
+    <select id="monat"></select>
+    <div id="bereichFeld">
+      <label for="bereich">Bereich</label>
+      <select id="bereich"></select>
+    </div>
+    <label for="posten">Posten</label>
+    <select id="posten"></select>
+    <div id="bisher"></div>
+    <label for="betrag">Betrag (€)</label>
+    <input id="betrag" inputmode="decimal" placeholder="0,00" autocomplete="off">
+    <div class="wiederholen">
+      <label class="check"><input type="checkbox" id="wiederholen"> Monatlich wiederholen</label>
+      <span id="bisFeld" hidden>bis <select id="bisMonat"></select></span>
+    </div>
+    <button class="haupt" id="speichern" disabled>Hinzufügen</button>
+    <div class="meldung" id="meldung"></div>
+  </div>
+
+  <div class="card" id="verlauf" hidden>
+    <h2>Letzte Einträge</h2>
+    <ul id="liste"></ul>
+  </div>
+
+  <div class="fuss" id="fuss" hidden>
+    <a id="tabelleLink" target="_blank" rel="noopener">Meine Tabelle öffnen</a>
+    <button class="link" id="vorlageAbgleich">Neue Zeilen aus Vorlage übernehmen</button>
+    <button class="link" id="abmelden">Abmelden</button>
+  </div>
+</main>
+
+<nav id="leiste" hidden>
+  <div class="inner">
+    <button data-modus="einnahmen">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5"/><path d="M5 12l7-7 7 7"/></svg>
+      Einnahmen
+    </button>
+    <button data-modus="fix">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10l9-6 9 6"/><path d="M5 10v10h14V10"/><path d="M10 20v-5h4v5"/></svg>
+      Fixkosten
+    </button>
+    <button data-modus="variabel">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 7h14l-1.5 11a2 2 0 0 1-2 1.7h-7a2 2 0 0 1-2-1.7z"/><path d="M9 7a3 3 0 0 1 6 0"/></svg>
+      Variabel
+    </button>
+    <button data-modus="sparen">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 11a8 6 0 0 1 16 0v3a3 3 0 0 1-2 2.8V19h-3v-2H9v2H6v-2.2A3 3 0 0 1 4 14z"/><path d="M12 5V3"/></svg>
+      Sparen
+    </button>
+  </div>
+</nav>
+
+<script src="config.js"></script>
+<script src="google.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
