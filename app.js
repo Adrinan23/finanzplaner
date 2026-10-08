@@ -1,4 +1,4 @@
-// Oberflaeche der Kosten-App.
+// Oberflaeche der Finanzplaner-App.
 (function () {
   const G = window.Google;
   const $ = id => document.getElementById(id);
@@ -233,7 +233,7 @@
 
   async function einrichten(user) {
     zeige(['einrichten']);
-    $('titel').textContent = 'Kosten erfassen';
+    $('titel').textContent = 'Finanzplaner';
     $('name').value = (user.displayName || '').split(' ')[0];
     try {
       const liste = await G.kandidaten();

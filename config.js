@@ -1,4 +1,4 @@
-// Einstellungen der Kosten-App.
+// Einstellungen der Finanzplaner-App.
 // CLIENT_ID kommt aus dem Google-Cloud-Projekt (OAuth-Client vom Typ "Webanwendung").
 // VORLAGE_ID ist die leere Google Tabelle "Finanzplaner (Vorlage)" (per Link lesbar).
 window.KOSTEN_CONFIG = {

@@ -1,6 +1,6 @@
 // Service Worker: immer zuerst aus dem Netz laden (damit Updates sofort bei allen ankommen),
 // ohne Netz die zuletzt geladene Version aus dem Zwischenspeicher zeigen.
-const CACHE = 'kosten-app';
+const CACHE = 'finanzplaner';
 
 self.addEventListener('install', () => self.skipWaiting());
 self.addEventListener('activate', e => e.waitUntil(self.clients.claim()));

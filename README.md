@@ -1,4 +1,4 @@
-# Kosten erfassen
+# Finanzplaner
 
 Installierbare Web-App (PWA), mit der man Einnahmen und Ausgaben direkt in den eigenen
 Finanzplaner (Google Tabelle im eigenen Google Drive) einträgt. Läuft auf GitHub Pages,
@@ -18,20 +18,20 @@ die Daten bleiben im Drive jedes Nutzers.
 
 ### 1. Google-Cloud-Projekt
 
-1. <https://console.cloud.google.com> öffnen, neues Projekt „Kosten-App“ anlegen.
+1. <https://console.cloud.google.com> öffnen, neues Projekt „Finanzplaner-App“ anlegen.
 2. „APIs & Dienste → Bibliothek“: **Google Drive API** und **Google Sheets API** aktivieren.
-3. „Google Auth Platform“ (OAuth-Zustimmungsbildschirm): Typ **Extern**, App-Name „Kosten erfassen“,
+3. „Google Auth Platform“ (OAuth-Zustimmungsbildschirm): Typ **Extern**, App-Name „Finanzplaner-App“,
    Support-E-Mail eintragen. Unter **Zielgruppe → Testnutzer** alle E-Mail-Adressen eintragen,
    die die App nutzen dürfen.
 4. „Clients → Client erstellen“: Typ **Webanwendung**
    - Autorisierte JavaScript-Quellen: `https://<github-name>.github.io`
-   - Autorisierte Weiterleitungs-URIs: `https://<github-name>.github.io/kosten-app/`
+   - Autorisierte Weiterleitungs-URIs: `https://<github-name>.github.io/finanzplaner/`
 5. Die angezeigte **Client-ID** in `config.js` bei `CLIENT_ID` eintragen.
 
 ### 2. GitHub Pages
 
-Repository `kosten-app` → Settings → Pages → Source: „Deploy from a branch“, Branch `main`, Ordner `/ (root)`.
-Die App ist dann unter `https://<github-name>.github.io/kosten-app/` erreichbar.
+Repository `finanzplaner` → Settings → Pages → Source: „Deploy from a branch“, Branch `main`, Ordner `/ (root)`.
+Die App ist dann unter `https://<github-name>.github.io/finanzplaner/` erreichbar.
 
 ### 3. Vorlage
 

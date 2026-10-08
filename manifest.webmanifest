@@ -1,6 +1,6 @@
 {
-  "name": "Kosten erfassen",
-  "short_name": "Kosten",
+  "name": "Finanzplaner",
+  "short_name": "Finanzplaner",
   "description": "Einnahmen und Ausgaben direkt in den eigenen Finanzplaner (Google Tabelle) eintragen.",
   "lang": "de",
   "start_url": "./",
