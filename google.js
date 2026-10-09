@@ -81,14 +81,20 @@
   const q = s => "'" + s.replace(/'/g, "''") + "'";
   function spaltenBuchstabe(n) { let s = ''; while (n > 0) { const m = (n - 1) % 26; s = String.fromCharCode(65 + m) + s; n = Math.floor((n - 1) / 26); } return s; }
   function zelle(blatt, zeile, spalte) { return q(blatt) + '!' + spaltenBuchstabe(spalte) + zeile; }
-  function zahl(n) { return String(Math.round(n * 100) / 100); }
+  // Zahl als Text; sep ist das Dezimalzeichen, mit dem die Tabelle Formeln liest ('.' oder ',').
+  function zahl(n, sep) { return String(Math.round(n * 100) / 100).replace('.', sep || '.'); }
+  // Dezimalzeichen der Tabellen-Sprache, z.B. de_DE -> ','
+  function dezimalzeichen(locale) {
+    try { return (1.5).toLocaleString(String(locale || 'en_US').replace('_', '-')).indexOf(',') >= 0 ? ',' : '.'; }
+    catch (e) { return '.'; }
+  }
   // Datum als Tabellen-Seriennummer (Tage seit 30.12.1899)
   function serial(jahr, monat) { return Math.round((Date.UTC(jahr, monat, 1) - Date.UTC(1899, 11, 30)) / 86400000); }
   function ausSerial(n) { return new Date(Date.UTC(1899, 11, 30) + n * 86400000); }
 
   async function blaetter(id) {
-    const d = await api(SHEETS + '/' + id + '?fields=properties.title,sheets.properties');
-    return { titel: d.properties.title, blaetter: d.sheets.map(s => s.properties) };
+    const d = await api(SHEETS + '/' + id + '?fields=properties(title,locale),sheets.properties');
+    return { titel: d.properties.title, locale: d.properties.locale || '', blaetter: d.sheets.map(s => s.properties) };
   }
 
   function monatsBlatt(info) {
@@ -307,31 +313,45 @@
     const refs = [];
     for (let m = von; m <= bis; m++) refs.push(zelle(s.blatt.title, p.zeile, s.monate[m - 1].spalte));
     const formeln = await werteHolen(id, refs, 'FORMULA');
-    const plan = [];
-    for (let m = von; m <= bis; m++) {
-      const roh = formeln[m - von].length ? formeln[m - von][0][0] : '';
-      let vorher, nachher;
-      if (roh === '' || roh === null || roh === undefined) { vorher = ''; nachher = betrag; }
-      else if (typeof roh === 'number') { vorher = zahl(roh); nachher = '=' + vorher + (betrag < 0 ? zahl(betrag) : '+' + zahl(betrag)); }
-      else if (String(roh).charAt(0) === '=') { vorher = roh; nachher = roh + (betrag < 0 ? zahl(betrag) : '+' + zahl(betrag)); }
-      else throw new Error('Die Zelle im ' + s.monate[m - 1].name + ' enthält Text und wird nicht verändert.');
-      plan.push({ m: m, spalte: s.monate[m - 1].spalte, vorher: vorher, nachher: nachher, erwartet: (p.werte[m - 1] || 0) + betrag });
+
+    // Formel bauen. Je nach Sprache der Tabelle wird "12.5" oder "12,5" als Zahl gelesen;
+    // deshalb mit dem passenden Dezimalzeichen schreiben, pruefen und notfalls das andere versuchen.
+    function bauePlan(sep) {
+      const plan = [];
+      for (let m = von; m <= bis; m++) {
+        const roh = formeln[m - von].length ? formeln[m - von][0][0] : '';
+        const dazu = betrag < 0 ? zahl(betrag, sep) : '+' + zahl(betrag, sep);
+        let vorher, nachher;
+        if (roh === '' || roh === null || roh === undefined) { vorher = ''; nachher = betrag; }
+        else if (typeof roh === 'number') { vorher = roh; nachher = '=' + zahl(roh, sep) + dazu; }
+        else if (String(roh).charAt(0) === '=') { vorher = roh; nachher = roh + dazu; }
+        else throw new Error('Die Zelle im ' + s.monate[m - 1].name + ' enthält Text und wird nicht verändert.');
+        plan.push({ m: m, spalte: s.monate[m - 1].spalte, vorher: vorher, nachher: nachher, erwartet: (p.werte[m - 1] || 0) + betrag });
+      }
+      return plan;
     }
 
-    await batch(id, plan.map(x => updateZelle(s.blatt.sheetId, p.zeile, x.spalte, x.nachher)));
-
-    // Kontrolle: stimmt der neue Wert? Sonst zuruecksetzen.
-    const neu = await werteHolen(id, refs, 'UNFORMATTED_VALUE');
-    const neueWerte = {};
-    let falsch = false;
-    plan.forEach((x, i) => {
-      const w = Number(neu[i].length ? neu[i][0][0] : 0) || 0;
-      neueWerte[x.m] = w;
-      if (Math.abs(w - x.erwartet) > 0.005) falsch = true;
-    });
-    if (falsch) {
+    const erstes = dezimalzeichen(info.locale);
+    let plan = null, neueWerte = {}, gefunden = null;
+    for (const sep of [erstes, erstes === ',' ? '.' : ',']) {
+      plan = bauePlan(sep);
+      await batch(id, plan.map(x => updateZelle(s.blatt.sheetId, p.zeile, x.spalte, x.nachher)));
+      // Kontrolle: stimmt der neue Wert? Sonst zuruecksetzen.
+      const neu = await werteHolen(id, refs, 'UNFORMATTED_VALUE');
+      const werte = {};
+      let falsch = false;
+      plan.forEach((x, i) => {
+        const w = Number(neu[i].length ? neu[i][0][0] : 0) || 0;
+        werte[x.m] = w;
+        if (Math.abs(w - x.erwartet) > 0.005) falsch = true;
+      });
+      if (!falsch) { neueWerte = werte; gefunden = sep; break; }
       await batch(id, plan.map(x => updateZelle(s.blatt.sheetId, p.zeile, x.spalte, x.vorher)));
-      throw new Error('Der Betrag konnte nicht korrekt eingetragen werden. Es wurde nichts geändert.');
+      console.warn('Kontrolle fehlgeschlagen', sep, plan, werte);
+    }
+    if (!gefunden) {
+      throw new Error('Der Betrag konnte nicht korrekt eingetragen werden. Es wurde nichts geändert.' +
+        '\n(Erwartet ' + plan[0].erwartet + ', Formel ' + plan[0].nachher + ', Tabellensprache ' + (info.locale || '?') + ')');
     }
 
     await logBlatt(id, info);
