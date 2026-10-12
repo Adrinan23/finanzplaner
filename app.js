@@ -308,7 +308,7 @@
   // ---------- Start ----------
 
   async function start() {
-    if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
+    if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' }).then(r => r.update()).catch(() => {});
     const rueck = G.tokenAusAdresse();
     if (!G.token()) {
       // Schon einmal angemeldet: still erneuern (einmal pro Sitzung), sonst Anmelde-Knopf zeigen
