@@ -380,6 +380,19 @@
   // ---------- Neue Zeilen aus der Vorlage uebernehmen ----------
   // Ergaenzt fehlende Posten (gleicher Bereich, gleiche Kategorie + Bezeichnung) am Ende ihres Bereichs.
   // Betraege werden nicht angefasst. Fehlende ganze Bereiche werden nur gemeldet.
+  // Nur pruefen: welche Posten der Vorlage fehlen in dieser Datei? (fuer den Hinweis beim Start)
+  async function fehlendeAusVorlage(id) {
+    const norm = s => s.replace(/\s+/g, ' ').trim().toLowerCase();
+    const [vorlage, eigene] = await Promise.all([struktur(CFG.VORLAGE_ID), struktur(id)]);
+    const fehlend = [];
+    vorlage.bereiche.forEach(vb => {
+      const b = eigene.bereiche.find(x => norm(x.name) === norm(vb.name));
+      if (!b) return;
+      vb.posten.forEach(vp => { if (!b.posten.some(x => norm(x.name) === norm(vp.name))) fehlend.push(vp.name); });
+    });
+    return fehlend;
+  }
+
   async function vorlageAbgleichen(id) {
     const vorlage = await struktur(CFG.VORLAGE_ID);
     const vorlageZeilen = await werteHolen(CFG.VORLAGE_ID, [q(vorlage.blatt.title) + '!A1:Z300'], 'FORMULA');
@@ -444,6 +457,6 @@
   window.Google = {
     anmelden, abmelden, tokenAusAdresse, token, restMinuten, nutzer, NichtAngemeldet,
     meineDateien, kandidaten, verbinden, ersterFinanzplaner, jahrAnlegen,
-    struktur, verlauf, blaetter, hinzufuegen, rueckgaengig, vorlageAbgleichen
+    struktur, verlauf, blaetter, hinzufuegen, rueckgaengig, vorlageAbgleichen, fehlendeAusVorlage
   };
 })();

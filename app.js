@@ -14,6 +14,7 @@
   function meldung(text, klasse, ziel) { const m = $(ziel || 'meldung'); m.textContent = text || ''; m.className = 'meldung ' + (klasse || ''); }
   function zeige(bereiche) {
     ['anmeldung', 'einrichten', 'formular', 'verlauf', 'fuss'].forEach(id => { $(id).hidden = bereiche.indexOf(id) < 0; });
+    if (bereiche.indexOf('formular') < 0) $('hinweisVorlage').hidden = true;
     const app = bereiche.indexOf('formular') >= 0;
     $('leiste').hidden = !app; $('jahr').hidden = !app;
     document.body.classList.toggle('mit-leiste', app);
@@ -219,6 +220,7 @@
       zeigeVerlauf(verlauf);
       $('speichern').disabled = false;
       merke('jahr', jahr);
+      pruefeVorlage();
     } catch (err) { fehler(err); }
   }
 
@@ -275,10 +277,32 @@
 
   // ---------- Vorlage abgleichen, Abmelden ----------
 
-  $('vorlageAbgleich').onclick = async function () {
+  // Beim Laden im Hintergrund pruefen, ob die Vorlage neue Posten hat, und dann einen Hinweis zeigen.
+  async function pruefeVorlage() {
+    $('hinweisVorlage').hidden = true;
+    try {
+      const fehlend = await G.fehlendeAusVorlage(dateien[jahr].id);
+      let weg = null;
+      try { weg = sessionStorage.getItem('kosten.hinweisWeg'); } catch (e) { }
+      if (!fehlend.length || weg === fehlend.join('|')) return;
+      $('hinweisText').textContent = 'Neue Posten verfügbar: ' + fehlend.join(', ') +
+        '. Du kannst sie jetzt in deine Tabelle übernehmen. Deine Einträge und Beträge bleiben dabei vollständig erhalten.';
+      $('hinweisVorlage').dataset.fehlend = fehlend.join('|');
+      $('hinweisVorlage').hidden = false;
+    } catch (err) { console.warn('Vorlage nicht geprüft', err); }
+  }
+  $('hinweisJetzt').onclick = () => { $('hinweisVorlage').hidden = true; abgleichen(true); };
+  $('hinweisSpaeter').onclick = () => {
+    $('hinweisVorlage').hidden = true;
+    try { sessionStorage.setItem('kosten.hinweisWeg', $('hinweisVorlage').dataset.fehlend || ''); } catch (e) { }
+  };
+
+  $('vorlageAbgleich').onclick = () => abgleichen(false);
+
+  async function abgleichen(ohneFrage) {
     const jahre = Object.keys(dateien).sort();
-    if (!confirm('Fehlende Posten aus der Vorlage in deine Finanzplaner (' + jahre.join(', ') + ') übernehmen?\n\nVorhandene Zeilen und Beträge werden nicht verändert.')) return;
-    this.disabled = true;
+    if (!ohneFrage && !confirm('Fehlende Posten aus der Vorlage in deine Finanzplaner (' + jahre.join(', ') + ') übernehmen?\n\nVorhandene Zeilen und Beträge werden nicht verändert.')) return;
+    $('vorlageAbgleich').disabled = true;
     const texte = [];
     try {
       for (const j of jahre) {
@@ -290,8 +314,8 @@
       await ladeJahr(jahr);
       meldung(texte.join('\n'), 'ok');
     } catch (err) { fehler(err); }
-    this.disabled = false;
-  };
+    $('vorlageAbgleich').disabled = false;
+  }
 
   $('abmelden').onclick = () => {
     if (!confirm('Abmelden?')) return;
