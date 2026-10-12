@@ -8,6 +8,14 @@
   const LOG_BLATT = 'Eingaben';
   const DRIVE = 'https://www.googleapis.com/drive/v3';
   const SHEETS = 'https://sheets.googleapis.com/v4/spreadsheets';
+  // Testversion (Adresse .../finanzplaner-test/): arbeitet nur mit eigenen Testkopien,
+  // die mit einem anderen Merkmal markiert sind und "(Test)" im Namen tragen.
+  const TEST = /finanzplaner-test/.test(location.pathname);
+  const MARK = TEST ? 'kostenAppTest' : 'kostenApp';
+  const ZUSATZ = TEST ? ' (Test)' : '';
+  const markierung = jahr => ({ [MARK]: '1', jahr: String(jahr) });
+  // "Finanzplanung 2026 (Test)" -> "Finanzplanung"
+  const grundname = n => n.replace(/\s*\(Test\)\s*$/, '').replace(/\s*20\d\d\s*$/, '').trim();
 
   function lies(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
   function schreib(k, v) { try { if (v === null) localStorage.removeItem(k); else localStorage.setItem(k, v); } catch (e) { } }
@@ -175,7 +183,7 @@
 
   async function meineDateien() {
     const p = new URLSearchParams({
-      q: "appProperties has { key='kostenApp' and value='1' } and trashed=false and 'me' in owners",
+      q: "appProperties has { key='" + MARK + "' and value='1' } and trashed=false and 'me' in owners",
       fields: 'files(id,name,appProperties,webViewLink)', pageSize: '100'
     });
     const d = await api(DRIVE + '/files?' + p.toString());
@@ -191,7 +199,9 @@
       fields: 'files(id,name,modifiedTime,appProperties)', orderBy: 'modifiedTime desc', pageSize: '20'
     });
     const d = await api(DRIVE + '/files?' + p.toString());
-    return d.files.filter(f => f.id !== CFG.VORLAGE_ID && !(f.appProperties && f.appProperties.kostenApp));
+    const ap = f => f.appProperties || {};
+    if (TEST) return d.files.filter(f => f.id !== CFG.VORLAGE_ID && !ap(f).kostenAppTest && !/\(Test\)/.test(f.name));
+    return d.files.filter(f => f.id !== CFG.VORLAGE_ID && !ap(f).kostenApp && !ap(f).kostenAppTest && !/\(Test\)/.test(f.name));
   }
 
   async function jahrDerDatei(id) {
@@ -202,13 +212,21 @@
   }
 
   // Bestehende Tabelle als Finanzplaner markieren (Jahr erkennen, Jahr an den Namen haengen).
+  // In der Testversion wird stattdessen eine Testkopie angelegt; das Original bleibt unberuehrt.
   async function verbinden(id) {
     const jahr = await jahrDerDatei(id);
     const meine = await meineDateien();
     if (meine[jahr] && meine[jahr].id !== id) throw new Error('Für ' + jahr + ' ist schon ein Finanzplaner verbunden.');
     const f = await api(DRIVE + '/files/' + id + '?fields=name');
+    if (TEST) {
+      const kopie = await api(DRIVE + '/files/' + id + '/copy?fields=id', {
+        method: 'POST', body: { name: grundname(f.name) + ' ' + jahr + ZUSATZ }
+      });
+      await api(DRIVE + '/files/' + kopie.id, { method: 'PATCH', body: { appProperties: Object.assign({ kostenApp: null }, markierung(jahr)) } });
+      return jahr;
+    }
     const name = f.name.indexOf(String(jahr)) >= 0 ? f.name : f.name.trim() + ' ' + jahr;
-    await api(DRIVE + '/files/' + id, { method: 'PATCH', body: { name: name, appProperties: { kostenApp: '1', jahr: String(jahr) } } });
+    await api(DRIVE + '/files/' + id, { method: 'PATCH', body: { name: name, appProperties: markierung(jahr) } });
     return jahr;
   }
 
@@ -216,9 +234,11 @@
   // leeren=true: alle Monatsbetraege und das Eingabe-Protokoll entfernen (fuer das Vorjahr als Vorlage).
   async function kopieFuerJahr(quelleId, name, jahr, leeren) {
     const kopie = await api(DRIVE + '/files/' + quelleId + '/copy?fields=id', {
-      method: 'POST', body: { name: name, appProperties: { kostenApp: '1', jahr: String(jahr) } }
+      method: 'POST', body: { name: name }
     });
     const id = kopie.id;
+    // Merkmal getrennt setzen (Kopien uebernehmen sonst das Merkmal der Quelle, z.B. ihr Jahr)
+    await api(DRIVE + '/files/' + id, { method: 'PATCH', body: { appProperties: Object.assign({ kostenApp: null, kostenAppTest: null }, markierung(jahr)) } });
     const info = await blaetter(id);
     const s = await struktur(id, info);
     const anfragen = [];
@@ -252,7 +272,7 @@
 
   async function ersterFinanzplaner(name) {
     const jahr = new Date().getFullYear();
-    await kopieFuerJahr(CFG.VORLAGE_ID, 'Finanzplaner - ' + name + ' ' + jahr, jahr, false);
+    await kopieFuerJahr(CFG.VORLAGE_ID, 'Finanzplaner - ' + name + ' ' + jahr + ZUSATZ, jahr, false);
     return jahr;
   }
 
@@ -264,8 +284,7 @@
     if (!vorhanden.length) throw new Error('Noch kein Finanzplaner vorhanden.');
     const vorher = vorhanden.filter(j => j < jahr);
     const quelle = meine[vorher.length ? vorher[vorher.length - 1] : vorhanden[0]];
-    const basis = quelle.name.replace(/\s*20\d\d\s*$/, '').trim();
-    await kopieFuerJahr(quelle.id, basis + ' ' + jahr, jahr, true);
+    await kopieFuerJahr(quelle.id, grundname(quelle.name) + ' ' + jahr + ZUSATZ, jahr, true);
     return jahr;
   }
 
@@ -455,7 +474,7 @@
   }
 
   window.Google = {
-    anmelden, abmelden, tokenAusAdresse, token, restMinuten, nutzer, NichtAngemeldet,
+    TEST, anmelden, abmelden, tokenAusAdresse, token, restMinuten, nutzer, NichtAngemeldet,
     meineDateien, kandidaten, verbinden, ersterFinanzplaner, jahrAnlegen,
     struktur, verlauf, blaetter, hinzufuegen, rueckgaengig, vorlageAbgleichen, fehlendeAusVorlage
   };

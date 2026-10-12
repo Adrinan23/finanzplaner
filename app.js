@@ -246,7 +246,7 @@
         li.innerHTML = '<div class="info"><div class="posten"></div><div class="sub"></div></div>';
         li.querySelector('.posten').textContent = f.name;
         li.querySelector('.sub').textContent = 'Zuletzt geändert ' + new Date(f.modifiedTime).toLocaleDateString('de-DE');
-        const b = document.createElement('button'); b.className = 'waehlen'; b.textContent = 'Verbinden';
+        const b = document.createElement('button'); b.className = 'waehlen'; b.textContent = G.TEST ? 'Testkopie anlegen' : 'Verbinden';
         b.onclick = async () => {
           b.disabled = true; meldung('Verbinde …', '', 'meldungEinrichten');
           try {
@@ -254,7 +254,7 @@
             dateien = await G.meineDateien();
             const weitere = Object.keys(dateien).length;
             li.remove();
-            meldung('„' + f.name + '“ ist jetzt dein Finanzplaner ' + j + '.', 'ok', 'meldungEinrichten');
+            meldung(G.TEST ? 'Testkopie von „' + f.name + '“ angelegt.' : '„' + f.name + '“ ist jetzt dein Finanzplaner ' + j + '.', 'ok', 'meldungEinrichten');
             if (weitere) await ladeJahr(j);
           } catch (err) { b.disabled = false; fehler(err, 'meldungEinrichten'); }
         };
@@ -332,6 +332,10 @@
   // ---------- Start ----------
 
   async function start() {
+    if (G.TEST) {
+      $('testBalken').hidden = false;
+      $('kandidatenText').textContent = 'TESTVERSION: Wähle die Tabelle, von der eine Testkopie angelegt werden soll. Das Original bleibt unverändert.';
+    }
     if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' }).then(r => r.update()).catch(() => {});
     const rueck = G.tokenAusAdresse();
     if (!G.token()) {

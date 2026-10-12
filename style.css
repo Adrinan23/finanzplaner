@@ -53,3 +53,4 @@ nav#leiste button.aktiv { color:var(--accent); font-weight:600; }
 nav#leiste button.aktiv svg { background:color-mix(in srgb, var(--accent) 15%, transparent); border-radius:14px; padding:2px 14px; width:54px; box-sizing:content-box; }
 .card.hinweis { border-color:var(--accent); }
 .card.hinweis .sub { font-size:14px; color:var(--text); }
+#testBalken { position:sticky; top:0; z-index:20; background:#c2410c; color:#fff; text-align:center; font-weight:700; font-size:13px; padding:6px 8px; padding-top:calc(6px + env(safe-area-inset-top)); }
