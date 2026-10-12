@@ -399,6 +399,28 @@
   // ---------- Neue Zeilen aus der Vorlage uebernehmen ----------
   // Ergaenzt fehlende Posten (gleicher Bereich, gleiche Kategorie + Bezeichnung) am Ende ihres Bereichs.
   // Betraege werden nicht angefasst. Fehlende ganze Bereiche werden nur gemeldet.
+  // Sparziele aus dem Blatt "Ersparnisse - Rücklagen" (Spalten ueber die Kopfzeile erkannt).
+  async function sparziele(id, info) {
+    info = info || await blaetter(id);
+    const blatt = info.blaetter.find(b => /^Ersparnis/i.test(b.title));
+    if (!blatt) return [];
+    const [z] = await werteHolen(id, [q(blatt.title) + '!A1:Z60'], 'UNFORMATTED_VALUE');
+    const kopf = z.findIndex(r => r.some(v => /Zielbestand/i.test(String(v))));
+    if (kopf < 0) return [];
+    const spalte = re => z[kopf].findIndex(v => re.test(String(v)));
+    const cName = spalte(/Sparziel|Rücklage/i), cVerw = spalte(/Verwendung/i), cRate = spalte(/Sparrate/i),
+      cStand = spalte(/Stand/i), cZiel = spalte(/Zielbestand/i);
+    const ziele = [];
+    for (let r = kopf + 1; r < z.length; r++) {
+      const name = String((z[r] || [])[cName] || '').trim();
+      if (!name) continue;
+      if (/^Gesamt/i.test(name)) break;
+      const n = c => c < 0 ? 0 : Number((z[r] || [])[c]) || 0;
+      ziele.push({ name, verwendung: cVerw < 0 ? '' : String(z[r][cVerw] || '').trim(), rate: n(cRate), stand: n(cStand), ziel: n(cZiel) });
+    }
+    return ziele;
+  }
+
   // Nur pruefen: welche Posten der Vorlage fehlen in dieser Datei? (fuer den Hinweis beim Start)
   async function fehlendeAusVorlage(id) {
     const norm = s => s.replace(/\s+/g, ' ').trim().toLowerCase();
@@ -476,6 +498,6 @@
   window.Google = {
     TEST, anmelden, abmelden, tokenAusAdresse, token, restMinuten, nutzer, NichtAngemeldet,
     meineDateien, kandidaten, verbinden, ersterFinanzplaner, jahrAnlegen,
-    struktur, verlauf, blaetter, hinzufuegen, rueckgaengig, vorlageAbgleichen, fehlendeAusVorlage
+    struktur, verlauf, blaetter, hinzufuegen, rueckgaengig, vorlageAbgleichen, fehlendeAusVorlage, sparziele
   };
 })();

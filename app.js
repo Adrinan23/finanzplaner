@@ -14,7 +14,7 @@
   function meldung(text, klasse, ziel) { const m = $(ziel || 'meldung'); m.textContent = text || ''; m.className = 'meldung ' + (klasse || ''); }
   function zeige(bereiche) {
     ['anmeldung', 'einrichten', 'formular', 'verlauf', 'fuss'].forEach(id => { $(id).hidden = bereiche.indexOf(id) < 0; });
-    if (bereiche.indexOf('formular') < 0) $('hinweisVorlage').hidden = true;
+    if (bereiche.indexOf('formular') < 0) { $('hinweisVorlage').hidden = true; $('uebersicht').hidden = true; }
     const app = bereiche.indexOf('formular') >= 0;
     $('leiste').hidden = !app; $('jahr').hidden = !app;
     document.body.classList.toggle('mit-leiste', app);
@@ -76,16 +76,40 @@
   }
 
   function setzeModus(m) {
-    const gibt = x => daten.bereiche.some(b => art(b) === x);
-    modus = MODI[m] && gibt(m) ? m : 'variabel';
+    const gibt = x => x === 'uebersicht' || daten.bereiche.some(b => art(b) === x);
+    modus = (MODI[m] || m === 'uebersicht') && gibt(m) ? m : 'variabel';
     merke('modus', modus);
     tabs.forEach(t => { t.classList.toggle('aktiv', t.dataset.modus === modus); t.hidden = !gibt(t.dataset.modus); });
+    const dash = modus === 'uebersicht';
+    $('formular').hidden = dash; $('verlauf').hidden = dash; $('uebersicht').hidden = !dash;
+    if (dash) { $('titel').textContent = 'Übersicht'; zeigeDashboard(); return; }
     $('titel').textContent = MODI[modus].titel;
     $('speichern').textContent = MODI[modus].knopf;
     meldung('');
     fuelleBereiche();
   }
-  tabs.forEach(t => { t.onclick = () => { setzeModus(t.dataset.modus); $('betrag').focus(); }; });
+  tabs.forEach(t => { t.onclick = () => { setzeModus(t.dataset.modus); if (modus !== 'uebersicht') $('betrag').focus(); else window.scrollTo(0, 0); }; });
+
+  // ---------- Uebersicht (Dashboard) ----------
+
+  let ziele = null, zieleJahr = null;
+  function zeigeDashboard() {
+    const sel = $('dashMonat');
+    if (sel.options.length !== 12 || sel.dataset.jahr !== jahr) {
+      sel.innerHTML = '';
+      daten.monate.forEach((m, i) => sel.add(new Option(m.name, i + 1)));
+      sel.value = $('monat').value;
+      sel.dataset.jahr = jahr;
+    }
+    const zeichnen = () => window.Dashboard.render($('dashInhalt'), daten, art, Number(sel.value), ziele);
+    zeichnen();
+    if (zieleJahr !== jahr) {
+      zieleJahr = jahr; ziele = null;
+      G.sparziele(dateien[jahr].id).then(z => { ziele = z; if (modus === 'uebersicht') zeichnen(); })
+        .catch(err => { ziele = []; console.warn('Sparziele nicht geladen', err); if (modus === 'uebersicht') zeichnen(); });
+    }
+  }
+  $('dashMonat').onchange = zeigeDashboard;
 
   $('bereich').onchange = function () { merke('bereich:' + modus, this.value); fuellePosten(); };
   $('posten').onchange = function () { merke('posten:' + bereich().name, this.value); zeigeBisher(); };

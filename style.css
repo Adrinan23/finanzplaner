@@ -54,3 +54,47 @@ nav#leiste button.aktiv svg { background:color-mix(in srgb, var(--accent) 15%, t
 .card.hinweis { border-color:var(--accent); }
 .card.hinweis .sub { font-size:14px; color:var(--text); }
 #testBalken { position:sticky; top:0; z-index:20; background:#c2410c; color:#fff; text-align:center; font-weight:700; font-size:13px; padding:6px 8px; padding-top:calc(6px + env(safe-area-inset-top)); }
+
+/* ---------- Uebersicht / Dashboard ---------- */
+:root { --viz-fix:#2a78d6; --viz-var:#eb6834; --viz-spar:#1baf7a; --viz-frei:#d3d6db; --viz-grau:#b9bec6; }
+@media (prefers-color-scheme: dark) {
+  :root { --viz-fix:#3987e5; --viz-var:#d95926; --viz-spar:#199e70; --viz-frei:#3a3f47; --viz-grau:#5b616b; }
+}
+nav#leiste button { font-size:11px; }
+.monatwahl select { margin-bottom:4px; }
+.kacheln { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:16px; }
+.kachel { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:12px; }
+.kachel .wert { font-size:20px; font-weight:700; margin:2px 0; }
+.kachel .wert.minus { color:var(--err); }
+.ring { display:flex; align-items:center; gap:14px; }
+.ring svg { width:132px; flex:none; }
+.ring .legende { flex:1; min-width:0; }
+.ring .legende li { padding:6px 0; gap:8px; }
+.ring .anteil { width:48px; text-align:right; }
+.punkt { display:inline-block; width:10px; height:10px; border-radius:3px; flex:none; margin-right:6px; vertical-align:middle; }
+.punkt.grau { background:var(--viz-grau); }
+.punkt.linie-punkt { height:3px; border-radius:2px; background:var(--text); }
+.t-klein { font-size:11px; fill:var(--muted); }
+.t-gross { font-size:16px; font-weight:700; fill:var(--text); }
+.t-achse { font-size:9px; fill:var(--muted); }
+.t-aktiv { fill:var(--text); font-weight:700; }
+.warnung { margin-top:8px; color:var(--text); }
+.vergleich-legende { display:flex; flex-wrap:wrap; gap:4px 14px; margin:2px 0 10px; }
+.vzeile, .tzeile { padding:8px 0; border-top:1px solid var(--line); }
+.vzeile:first-of-type, .tzeile:first-of-type { border-top:0; }
+.vkopf { display:flex; justify-content:space-between; gap:8px; align-items:baseline; margin-bottom:5px; }
+.vname { font-size:14px; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.balken { height:9px; border-radius:0 4px 4px 0; background:var(--viz-grau); margin:2px 0; }
+.balken.grau { background:var(--viz-grau); }
+.vwerte { margin-top:3px; }
+.fortschritt { background:var(--line); border-radius:4px; overflow:hidden; }
+.fortschritt .balken { margin:0; }
+svg.jahr { width:100%; height:auto; display:block; }
+.gitter { stroke:var(--line); stroke-width:1; }
+.linie { fill:none; stroke:var(--text); stroke-width:2; }
+.linienpunkt { fill:var(--text); stroke:var(--card); stroke-width:2; }
+.saeule.aktiv rect[fill="transparent"] { fill:color-mix(in srgb, var(--accent) 10%, transparent); }
+.ring { flex-direction:column; align-items:stretch; }
+.ring svg { width:150px; align-self:center; }
+.ring .legende li { display:grid; grid-template-columns:auto 1fr auto 52px; align-items:center; }
+.vkopf .sub { white-space:nowrap; flex:none; }
