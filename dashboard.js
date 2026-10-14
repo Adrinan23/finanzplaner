@@ -79,19 +79,37 @@
     const zeilen = daten.bereiche.filter(b => art(b) !== 'einnahmen').map(b => {
       const a = ARTEN.find(x => x.key === art(b));
       const summe = mm => mm < 1 ? 0 : b.posten.reduce((x, p) => x + (p.werte[mm - 1] || 0), 0);
-      return { name: b.name.replace(/^\d+\.\s*/, '').replace(/^(FIXKOSTEN|VARIABLE KOSTEN):\s*/i, ''), farbe: a.farbe, jetzt: summe(m), vorher: summe(m - 1) };
+      const posten = b.posten.map(p => ({ name: p.bezeichnung, kat: p.kategorie, jetzt: m < 1 ? 0 : p.werte[m - 1] || 0, vorher: m < 2 ? 0 : p.werte[m - 2] || 0 }));
+      return { name: b.name.replace(/^\d+\.\s*/, '').replace(/^(FIXKOSTEN|VARIABLE KOSTEN):\s*/i, ''), farbe: a.farbe, jetzt: summe(m), vorher: summe(m - 1), posten };
     });
     const max = Math.max(1, ...zeilen.map(z => Math.max(z.jetzt, z.vorher)));
     return '<div class="vergleich-legende sub"><span><span class="punkt grau"></span>' + (vormonat || 'Vormonat') + '</span>' +
       '<span><span class="punkt" style="background:var(--text)"></span>' + monatName + ' (Farbe = Art)</span></div>' +
       zeilen.map(z => {
         const w = v => Math.max(v > 0 ? 1.5 : 0, v / max * 100);
-        return '<div class="vzeile"><div class="vkopf"><span class="vname">' + esc(z.name) + '</span>' +
+        return '<details class="vzeile"><summary><div class="vkopf"><span class="vname"><span class="pfeil">▸</span> ' + esc(z.name) + '</span>' +
           '<span class="sub">' + (m > 1 ? veraenderung(z.jetzt, z.vorher) : '') + '</span></div>' +
           '<div class="balken grau" style="width:' + w(z.vorher) + '%" title="' + esc((vormonat || 'Vormonat') + ': ' + euro(z.vorher)) + '"></div>' +
           '<div class="balken" style="width:' + w(z.jetzt) + '%;background:' + z.farbe + '" title="' + esc(monatName + ': ' + euro(z.jetzt)) + '"></div>' +
-          '<div class="sub vwerte">' + euro(z.vorher, false) + ' → <b>' + euro(z.jetzt, false) + '</b></div></div>';
-      }).join('');
+          '<div class="sub vwerte">' + euro(z.vorher, false) + ' → <b>' + euro(z.jetzt, false) + '</b></div></summary>' +
+          unterkonten(z, m, monatName, vormonat) + '</details>';
+      }).join('') + '<div class="sub hinweis-tipp">Tippe auf einen Bereich für die einzelnen Posten.</div>';
+  }
+
+  // 3a. Aufklappbare Einzelposten eines Bereichs (Vormonat vs. aktueller Monat)
+  function unterkonten(z, m, monatName, vormonat) {
+    const mitBetrag = z.posten.filter(p => p.jetzt || p.vorher).sort((x, y) => y.jetzt - x.jetzt || y.vorher - x.vorher);
+    const leer = z.posten.length - mitBetrag.length;
+    if (!mitBetrag.length) return '<div class="unterposten sub">In diesem Bereich ist für ' + monatName + ' nichts eingetragen.</div>';
+    const max = Math.max(1, ...mitBetrag.map(p => Math.max(p.jetzt, p.vorher)));
+    const anteil = p => z.jetzt > 0 ? ' · ' + prozent(p.jetzt / z.jetzt * 100) + ' des Bereichs' : '';
+    return '<div class="unterposten">' + mitBetrag.map(p =>
+      '<div class="pzeile"><div class="vkopf"><span class="vname">' + esc(p.name) + (p.kat && p.kat !== p.name ? ' <span class="sub">(' + esc(p.kat) + ')</span>' : '') + '</span>' +
+      '<span class="sub">' + (m > 1 ? veraenderung(p.jetzt, p.vorher) : '') + '</span></div>' +
+      (m > 1 ? '<div class="balken grau" style="width:' + Math.max(p.vorher > 0 ? 1.5 : 0, p.vorher / max * 100) + '%" title="' + esc(vormonat + ': ' + euro(p.vorher)) + '"></div>' : '') +
+      '<div class="balken" style="width:' + Math.max(p.jetzt > 0 ? 1.5 : 0, p.jetzt / max * 100) + '%;background:' + z.farbe + '" title="' + esc(monatName + ': ' + euro(p.jetzt)) + '"></div>' +
+      '<div class="sub vwerte">' + (m > 1 ? vormonat + ': ' + euro(p.vorher) + ' → ' : '') + monatName + ': <b>' + euro(p.jetzt) + '</b>' + anteil(p) + '</div></div>'
+    ).join('') + (leer ? '<div class="sub">' + leer + (leer === 1 ? ' weiterer Posten' : ' weitere Posten') + ' ohne Betrag</div>' : '') + '</div>';
   }
 
   // 4. Top 5 Ausgaben des Monats

@@ -353,6 +353,23 @@
     if (document.visibilityState === 'visible' && G.token() && G.restMinuten() < 5) G.anmelden(true);
   });
 
+  // ---------- Neuigkeiten ----------
+
+  // Zeigt einmal die Neuigkeiten seit dem letzten Besuch. Wer die App zum ersten Mal auf diesem Geraet nutzt,
+  // sieht nur den neuesten Eintrag.
+  function zeigeNeuigkeiten() {
+    const liste = window.NEUIGKEITEN || [];
+    if (!liste.length) return;
+    const gesehen = hole('kosten.neuigkeiten');
+    const neu = gesehen ? liste.filter(n => n.id > gesehen) : liste.slice(0, 1);
+    if (!neu.length) return;
+    const ul = $('neuigkeitenListe');
+    ul.innerHTML = '';
+    neu.forEach(n => n.punkte.forEach(p => { const li = document.createElement('li'); li.textContent = p; ul.appendChild(li); }));
+    $('neuigkeiten').hidden = false;
+    $('neuigkeitenOk').onclick = () => { $('neuigkeiten').hidden = true; merke('kosten.neuigkeiten', liste[0].id); };
+  }
+
   // ---------- Start ----------
 
   async function start() {
@@ -387,6 +404,7 @@
       const gemerkt = entwurf && dateien[entwurf.jahr] ? entwurf.jahr : null;
       await ladeJahr(gemerkt || standardJahr());
       if (entwurf && entwurf.betrag) { $('betrag').value = entwurf.betrag; meldung('Anmeldung erneuert. Bitte noch einmal auf Hinzufügen tippen.'); }
+      zeigeNeuigkeiten();
     } catch (err) {
       if (err instanceof G.NichtAngemeldet) { zeige(['anmeldung']); return; }
       zeige(['anmeldung']);

@@ -98,3 +98,14 @@ svg.jahr { width:100%; height:auto; display:block; }
 .ring svg { width:150px; align-self:center; }
 .ring .legende li { display:grid; grid-template-columns:auto 1fr auto 52px; align-items:center; }
 .vkopf .sub { white-space:nowrap; flex:none; }
+details.vzeile > summary { list-style:none; cursor:pointer; }
+details.vzeile > summary::-webkit-details-marker { display:none; }
+.pfeil { display:inline-block; color:var(--muted); transition:transform .15s; }
+details[open] .pfeil { transform:rotate(90deg); }
+.unterposten { margin:8px 0 2px 12px; padding-left:10px; border-left:2px solid var(--line); }
+.pzeile { padding:6px 0; }
+.pzeile .balken { height:6px; }
+.hinweis-tipp { margin-top:8px; }
+.overlay { position:fixed; inset:0; z-index:50; background:rgba(0,0,0,.45); display:flex; align-items:center; justify-content:center; padding:16px; }
+.dialog { width:100%; max-width:420px; margin:0; max-height:85vh; overflow:auto; }
+#neuigkeitenListe li { display:list-item; list-style:disc; margin-left:20px; padding:6px 0; border:0; font-size:15px; }

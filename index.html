@@ -91,9 +91,18 @@
     <a id="tabelleLink" target="_blank" rel="noopener">Meine Tabelle öffnen</a>
     <button class="link" id="vorlageAbgleich">Neue Zeilen aus Vorlage übernehmen</button>
     <button class="link" id="abmelden">Abmelden</button>
-    <span class="sub">Version 2026-10-12c</span>
+    <span class="sub">Version 2026-10-14c</span>
   </div>
 </main>
+
+<!-- Neuigkeiten nach einem Update -->
+<div id="neuigkeiten" class="overlay" hidden>
+  <div class="card dialog" role="dialog" aria-labelledby="neuigkeitenTitel">
+    <h2 id="neuigkeitenTitel">Neu in der App</h2>
+    <ul id="neuigkeitenListe"></ul>
+    <button class="haupt" id="neuigkeitenOk">Verstanden</button>
+  </div>
+</div>
 
 <nav id="leiste" hidden>
   <div class="inner">
@@ -123,6 +132,7 @@
 <script src="config.js"></script>
 <script src="google.js"></script>
 <script src="dashboard.js"></script>
+<script src="neuigkeiten.js"></script>
 <script src="app.js"></script>
 </body>
 </html>
