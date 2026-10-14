@@ -319,7 +319,8 @@
   }
 
   // Haengt den Betrag an die Monatszellen von "monat" bis "bisMonat" an.
-  async function hinzufuegen(id, e) {
+  // status.geschrieben wird gesetzt, sobald die Tabelle veraendert wird (fuer die Offline-Warteschlange).
+  async function hinzufuegen(id, e, status) {
     const betrag = Math.round(Number(e.betrag) * 100) / 100;
     if (!betrag || !isFinite(betrag)) throw new Error('Ungültiger Betrag.');
     const info = await blaetter(id);
@@ -354,6 +355,7 @@
     let plan = null, neueWerte = {}, gefunden = null;
     for (const sep of [erstes, erstes === ',' ? '.' : ',']) {
       plan = bauePlan(sep);
+      if (status) status.geschrieben = true;
       await batch(id, plan.map(x => updateZelle(s.blatt.sheetId, p.zeile, x.spalte, x.nachher)));
       // Kontrolle: stimmt der neue Wert? Sonst zuruecksetzen.
       const neu = await werteHolen(id, refs, 'UNFORMATTED_VALUE');

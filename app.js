@@ -20,9 +20,105 @@
     document.body.classList.toggle('mit-leiste', app);
   }
 
+  // ---------- Offline ----------
+  // Ohne Internet: zuletzt geladener Stand (Posten, Verlauf) aus dem Speicher, neue Eintraege in eine
+  // Warteschlange. Sobald wieder Internet da ist, werden sie der Reihe nach eingetragen.
+  // Live und Test teilen sich die Adresse adrinan23.github.io, deshalb getrennte Schluessel.
+  const NR = G.TEST ? '.test' : '';
+  const STAND = 'kosten.stand' + NR, WS = 'kosten.warteschlange' + NR;
+  const offline = () => navigator.onLine === false;
+  const netzFehler = err => offline() || (err instanceof TypeError && /fetch|network|load failed/i.test(err.message));
+  function warteschlange() { try { return JSON.parse(hole(WS) || '[]'); } catch (e) { return []; } }
+  function setzeWarteschlange(l) { merke(WS, JSON.stringify(l)); }
+  let letzterVerlauf = [];
+  let offlineGestartet = false;
+
+  function merkeStand() {
+    merke(STAND, JSON.stringify({ email: hole('kosten.email'), dateien: dateien, jahr: jahr, daten: daten, verlauf: letzterVerlauf }));
+  }
+
+  function zeigeOffline() { $('offlineBalken').hidden = !offline(); }
+  window.addEventListener('offline', zeigeOffline);
+  window.addEventListener('online', async () => {
+    zeigeOffline();
+    if (!daten) return;
+    if (offlineGestartet) {
+      // Die App lief bisher nur mit dem gespeicherten Stand: jetzt richtig laden.
+      if (!G.token()) { fehler(new G.NichtAngemeldet()); return; }
+      try {
+        await G.nutzer();
+        dateien = await G.meineDateien();
+        offlineGestartet = false;
+        await ladeJahr(dateien[jahr] ? jahr : standardJahr());
+      } catch (err) { fehler(err); return; }
+    }
+    synchronisiere();
+  });
+
+  function inWarteschlange(eintrag) {
+    const l = warteschlange();
+    l.push(Object.assign({ id: Date.now() + '-' + Math.random().toString(36).slice(2, 7), email: hole('kosten.email'), jahr: jahr, dateiId: dateien[jahr].id, zeit: new Date().toISOString() }, eintrag));
+    setzeWarteschlange(l);
+  }
+
+  let synchronLaeuft = false;
+  async function synchronisiere() {
+    if (synchronLaeuft || offline() || offlineGestartet) return;
+    const email = hole('kosten.email');
+    const offen = warteschlange().filter(e => e.email === email && !e.fehler);
+    if (!offen.length) return;
+    if (!G.token()) { fehler(new G.NichtAngemeldet()); return; }
+    synchronLaeuft = true;
+    let fertig = 0, probleme = 0;
+    for (const e of offen) {
+      if (offline()) break;
+      meldung('Trage wartende Einträge ein (' + (fertig + 1) + ' von ' + offen.length + ') …');
+      const status = {};
+      try {
+        await G.hinzufuegen(e.dateiId, e, status);
+        setzeWarteschlange(warteschlange().filter(x => x.id !== e.id));
+        fertig++;
+      } catch (err) {
+        if (err instanceof G.NichtAngemeldet) { synchronLaeuft = false; fehler(err); return; }
+        if (netzFehler(err) && !status.geschrieben) break;
+        // Bleibt mit Fehler in der Liste, damit nichts doppelt eingetragen wird.
+        setzeWarteschlange(warteschlange().map(x => x.id === e.id ? Object.assign(x, {
+          fehler: netzFehler(err) ? 'Verbindung abgebrochen. Bitte in der Tabelle prüfen, ob der Betrag schon drinsteht.' : (err.message || String(err))
+        }) : x));
+        probleme++;
+      }
+    }
+    synchronLaeuft = false;
+    try {
+      if (fertig) {
+        const id = dateien[jahr].id;
+        aktualisiere(await G.struktur(id), await G.verlauf(id));
+      } else zeigeVerlauf(letzterVerlauf);
+    } catch (err) { console.warn('Nach dem Eintragen nicht neu geladen', err); zeigeVerlauf(letzterVerlauf); }
+    const rest = warteschlange().filter(e => e.email === email && !e.fehler).length;
+    meldung((fertig ? fertig + (fertig === 1 ? ' wartender Eintrag wurde' : ' wartende Einträge wurden') + ' eingetragen.' : '') +
+      (probleme ? (fertig ? '\n' : '') + probleme + ' Eintrag/Einträge konnten nicht eingetragen werden, siehe „Letzte Einträge“.' : '') +
+      (rest && !probleme ? (fertig ? '\n' : '') + rest + ' Eintrag/Einträge warten noch auf Internet.' : ''), probleme ? 'fehler' : 'ok');
+  }
+
+  // Neue Struktur und Verlauf uebernehmen, ohne die Auswahl im Formular zu verlieren.
+  function aktualisiere(struktur, verlauf) {
+    const pi = $('posten').value, bi = $('bereich').value;
+    daten = struktur;
+    if (modus === 'uebersicht') { zeigeDashboard(); zeigeVerlauf(verlauf); return; }
+    fuelleBereiche(); $('bereich').value = bi; fuellePosten(); $('posten').value = pi; zeigeBisher();
+    zeigeVerlauf(verlauf);
+  }
+
   // Bei abgelaufener Anmeldung: Eingabe merken und kurz zu Google und zurueck.
   function fehler(err, ziel) {
+    if (netzFehler(err) && !(err instanceof G.NichtAngemeldet)) {
+      meldung('Keine Internetverbindung. Neue Einträge werden gespeichert und später eingetragen; anderes geht erst wieder mit Internet.', 'fehler', ziel);
+      $('speichern').disabled = false;
+      return;
+    }
     if (err instanceof G.NichtAngemeldet) {
+      if (offline()) { meldung('Keine Internetverbindung.', 'fehler', ziel); $('speichern').disabled = false; return; }
       try { sessionStorage.setItem('kosten.entwurf', JSON.stringify({ betrag: $('betrag').value, jahr: jahr })); } catch (e) { }
       G.anmelden(true);
       return;
@@ -129,10 +225,31 @@
   // ---------- Verlauf ----------
 
   function zeigeVerlauf(liste) {
+    letzterVerlauf = liste;
+    merkeStand();
     const ul = $('liste'); ul.innerHTML = '';
-    if (!liste.length) { ul.innerHTML = '<li class="sub">Noch nichts erfasst.</li>'; return; }
     const einnahme = {};
     daten.bereiche.forEach(b => { if (art(b) === 'einnahmen') b.posten.forEach(p => { einnahme[p.name] = true; }); });
+    const email = hole('kosten.email');
+    const wartend = warteschlange().filter(e => e.email === email && e.jahr === jahr).reverse();
+    if (!liste.length && !wartend.length) { ul.innerHTML = '<li class="sub">Noch nichts erfasst.</li>'; return; }
+    wartend.forEach(e => {
+      const li = document.createElement('li');
+      li.className = 'wartend' + (e.fehler ? ' problem' : '');
+      li.innerHTML = '<div class="info"><div class="posten"></div><div class="sub"></div></div><div class="betrag"></div>';
+      li.querySelector('.posten').textContent = e.posten;
+      const bis = e.bisMonat > e.monat ? ' bis ' + daten.monate[e.bisMonat - 1].name : '';
+      li.querySelector('.sub').textContent = daten.monate[e.monat - 1].name + bis + ' · ' + (e.fehler ? 'Nicht eingetragen: ' + e.fehler : 'wartet auf Internet');
+      li.querySelector('.betrag').textContent = (einnahme[e.posten] ? '+ ' : '− ') + euro(e.betrag);
+      const b = document.createElement('button'); b.className = 'undo'; b.textContent = 'Löschen';
+      b.onclick = () => {
+        if (!confirm('Wartenden Eintrag ' + euro(e.betrag) + ' bei „' + e.posten + '“ löschen? Er wird dann nicht eingetragen.')) return;
+        setzeWarteschlange(warteschlange().filter(x => x.id !== e.id));
+        zeigeVerlauf(letzterVerlauf);
+      };
+      li.appendChild(b);
+      ul.appendChild(li);
+    });
     liste.forEach(e => {
       const li = document.createElement('li');
       if (e.storniert) li.className = 'storniert';
@@ -150,9 +267,7 @@
           b.disabled = true; meldung('Mache rückgängig …');
           try {
             const r = await G.rueckgaengig(dateien[jahr].id, e.logZeile);
-            const pi = $('posten').value, bi = $('bereich').value;
-            daten = r.struktur; fuelleBereiche(); $('bereich').value = bi; fuellePosten(); $('posten').value = pi; zeigeBisher();
-            zeigeVerlauf(r.verlauf);
+            aktualisiere(r.struktur, r.verlauf);
             meldung('Eintrag rückgängig gemacht.', 'ok');
           } catch (err) { b.disabled = false; fehler(err); }
         };
@@ -181,16 +296,31 @@
       if (belegt.length) text += '\n\nAchtung: In ' + belegt.join(', ') + ' ist schon etwas eingetragen. Der Betrag wird dort dazugerechnet.';
       if (!confirm(text)) return;
     }
+    const eintrag = { monat: m, bisMonat: bis, zeile: p.zeile, posten: p.name, betrag: betrag };
+    const vormerken = () => {
+      inWarteschlange(eintrag);
+      $('betrag').value = ''; $('wiederholen').checked = false; $('bisFeld').hidden = true;
+      meldung('Offline gespeichert: ' + euro(betrag) + ' · ' + p.name + '. Wird eingetragen, sobald du wieder Internet hast.', 'ok');
+      zeigeVerlauf(letzterVerlauf);
+      $('speichern').disabled = false;
+    };
+    if (offline() || offlineGestartet) { vormerken(); return; }
     $('speichern').disabled = true; meldung('Speichere …');
+    const status = {};
     try {
-      const r = await G.hinzufuegen(dateien[jahr].id, { monat: m, bisMonat: bis, zeile: p.zeile, posten: p.name, betrag: betrag });
+      const r = await G.hinzufuegen(dateien[jahr].id, eintrag, status);
       Object.keys(r.neueWerte).forEach(k => { p.werte[k - 1] = r.neueWerte[k]; });
       $('betrag').value = ''; $('wiederholen').checked = false; $('bisFeld').hidden = true;
       zeigeBisher();
       const zeitraum = bis > m ? ' · ' + daten.monate[m - 1].name + ' bis ' + daten.monate[bis - 1].name : '';
       meldung('Gespeichert: ' + euro(betrag) + ' · ' + p.name + zeitraum, 'ok');
       zeigeVerlauf(r.verlauf);
-    } catch (err) { fehler(err); }
+    } catch (err) {
+      if (netzFehler(err) && !(err instanceof G.NichtAngemeldet)) {
+        if (!status.geschrieben) { vormerken(); return; }
+        meldung('Die Verbindung ist beim Speichern abgebrochen. Bitte in der Tabelle prüfen, ob der Betrag eingetragen wurde.', 'fehler');
+      } else fehler(err);
+    }
     $('speichern').disabled = false;
   };
   $('betrag').onkeydown = ev => { if (ev.key === 'Enter') $('speichern').click(); };
@@ -210,6 +340,7 @@
 
   $('jahr').onchange = async function () {
     const j = this.value, sel = this;
+    if (offline() || offlineGestartet) { sel.value = jahr; meldung('Ohne Internet kannst du das Jahr nicht wechseln.', 'fehler'); return; }
     if (!dateien[j]) {
       if (!confirm('Finanzplaner für ' + j + ' anlegen?\n\nEr wird aus deinem Vorjahr erstellt: gleiche Posten, alle Beträge leer. Deine bisherigen Jahre bleiben unverändert.')) { sel.value = jahr; return; }
       sel.disabled = true; meldung('Lege Finanzplaner ' + j + ' an …');
@@ -231,6 +362,15 @@
       const info = await G.blaetter(id);
       daten = await G.struktur(id, info);
       const verlauf = await G.verlauf(id, info);
+      zeigeJahr(verlauf);
+      merke('jahr', jahr);
+      pruefeVorlage();
+    } catch (err) { fehler(err); }
+  }
+
+  // Zeigt das Formular fuer "jahr" mit den Daten in "daten" (auch offline aus dem gespeicherten Stand).
+  function zeigeJahr(verlauf) {
+      const id = dateien[jahr].id;
       zeige(['formular', 'verlauf', 'fuss']);
       fuelleJahre();
       $('tabelleLink').href = dateien[jahr].webViewLink || ('https://docs.google.com/spreadsheets/d/' + id + '/edit');
@@ -243,9 +383,22 @@
       setzeModus(hole('modus') || 'variabel');
       zeigeVerlauf(verlauf);
       $('speichern').disabled = false;
-      merke('jahr', jahr);
-      pruefeVorlage();
-    } catch (err) { fehler(err); }
+  }
+
+  // Start ohne Internet mit dem zuletzt gespeicherten Stand.
+  function starteOffline() {
+    let stand = null;
+    try { stand = JSON.parse(hole(STAND) || 'null'); } catch (e) { }
+    if (!stand || !stand.daten || !stand.dateien || !stand.dateien[stand.jahr]) {
+      zeige(['anmeldung']);
+      meldung('Keine Internetverbindung. Öffne die App einmal mit Internet, danach kannst du auch offline eintragen.', 'fehler', 'meldungAnmeldung');
+      return;
+    }
+    offlineGestartet = true;
+    if (stand.email) merke('kosten.email', stand.email);
+    dateien = stand.dateien; jahr = String(stand.jahr); daten = stand.daten;
+    zeigeJahr(stand.verlauf || []);
+    meldung('Du bist offline. Neue Einträge werden gespeichert und eingetragen, sobald du wieder Internet hast.');
   }
 
   function standardJahr() {
@@ -350,7 +503,7 @@
 
   // Kurz vor Ablauf der Anmeldung (nach ca. 1 Stunde) still erneuern, wenn die App wieder geoeffnet wird.
   document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible' && G.token() && G.restMinuten() < 5) G.anmelden(true);
+    if (document.visibilityState === 'visible' && !offline() && G.token() && G.restMinuten() < 5) G.anmelden(true);
   });
 
   // ---------- Neuigkeiten ----------
@@ -379,6 +532,8 @@
     }
     if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' }).then(r => r.update()).catch(() => {});
     const rueck = G.tokenAusAdresse();
+    zeigeOffline();
+    if (offline()) { starteOffline(); return; }
     if (!G.token()) {
       // Schon einmal angemeldet: still erneuern (einmal pro Sitzung), sonst Anmelde-Knopf zeigen
       let versucht = null;
@@ -405,7 +560,9 @@
       await ladeJahr(gemerkt || standardJahr());
       if (entwurf && entwurf.betrag) { $('betrag').value = entwurf.betrag; meldung('Anmeldung erneuert. Bitte noch einmal auf Hinzufügen tippen.'); }
       zeigeNeuigkeiten();
+      synchronisiere();
     } catch (err) {
+      if (netzFehler(err)) { starteOffline(); return; }
       if (err instanceof G.NichtAngemeldet) { zeige(['anmeldung']); return; }
       zeige(['anmeldung']);
       meldung(err.message, 'fehler', 'meldungAnmeldung');

@@ -109,3 +109,8 @@ details[open] .pfeil { transform:rotate(90deg); }
 .overlay { position:fixed; inset:0; z-index:50; background:rgba(0,0,0,.45); display:flex; align-items:center; justify-content:center; padding:16px; }
 .dialog { width:100%; max-width:420px; margin:0; max-height:85vh; overflow:auto; }
 #neuigkeitenListe li { display:list-item; list-style:disc; margin-left:20px; padding:6px 0; border:0; font-size:15px; }
+#offlineBalken { position:sticky; top:0; z-index:19; background:#4b5563; color:#fff; text-align:center; font-size:13px; padding:6px 8px; }
+li.wartend .posten::after { content:' · wartet'; color:var(--muted); font-size:12px; font-weight:400; }
+li.wartend .betrag { opacity:.6; }
+li.wartend.problem .posten::after { content:' · Problem'; color:var(--err); }
+li.wartend.problem .sub { color:var(--err); }
