@@ -184,7 +184,7 @@
     meldung('');
     fuelleBereiche();
   }
-  tabs.forEach(t => { t.onclick = () => { setzeModus(t.dataset.modus); if (modus !== 'uebersicht') $('betrag').focus(); else window.scrollTo(0, 0); }; });
+  tabs.forEach(t => { t.onclick = () => { setzeModus(t.dataset.modus); window.scrollTo(0, 0); }; });
 
   // ---------- Uebersicht (Dashboard) ----------
 
