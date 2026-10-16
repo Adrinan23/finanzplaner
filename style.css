@@ -114,3 +114,24 @@ li.wartend .posten::after { content:' · wartet'; color:var(--muted); font-size:
 li.wartend .betrag { opacity:.6; }
 li.wartend.problem .posten::after { content:' · Problem'; color:var(--err); }
 li.wartend.problem .sub { color:var(--err); }
+/* ---------- Finanzierung ---------- */
+.darlehen { border-top:1px solid var(--line); padding-top:12px; margin-top:12px; }
+.fraster { display:grid; grid-template-columns:1fr 1fr; gap:8px 12px; margin:10px 0 6px; font-size:14px; }
+.fzeile { display:flex; flex-direction:column; }
+.fzeile.breit { grid-column:1 / -1; }
+.faktionen { display:flex; gap:8px; margin-top:8px; }
+.aufteilung { display:flex; height:12px; border-radius:6px; overflow:hidden; margin:6px 0 4px; }
+.aufteilung .balken { height:12px; margin:0; border-radius:0; }
+.zweispaltig { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:0 10px; }
+.zweispaltig label { margin-top:12px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.darlehen .warnung { color:var(--err); }
+.zweispaltig > div { min-width:0; }
+.zweispaltig input { min-width:0; max-width:100%; }
+input[type="month"] { -webkit-appearance:none; appearance:none; min-height:48px; text-align:left; }
+input[type="month"]::-webkit-date-and-time-value { text-align:left; }
+#finanzierung h3 { font-size:14px; margin:18px 0 2px; }
+.ampel { font-size:14px; padding:8px 10px; border-radius:10px; margin:6px 0; border:1px solid var(--line); }
+.ampel.gut { color:var(--accent); }
+.ampel.schlecht { color:var(--err); }
+#fSonderBox label { margin-top:14px; }
+#fAnnuHinweis { margin-bottom:6px; } #fRateInfo { font-weight:600; }

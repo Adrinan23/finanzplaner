@@ -148,7 +148,7 @@
       else if (aktuell && b === 'Zwischensumme') aktuell.zwischensumme = r + 1;
       else if (aktuell && b && c) {
         aktuell.posten.push({
-          name: b + ' - ' + c, kategorie: b, bezeichnung: c, zeile: r + 1,
+          name: b + ' - ' + c, kategorie: b, bezeichnung: c, zeile: r + 1, auto: /\(automatisch\)$/.test(c),
           werte: monate.map(m => Number((roh[r] || [])[m.spalte - 1]) || 0)
         });
       }
@@ -167,6 +167,20 @@
     if (typeof inhalt === 'number') return { numberValue: inhalt };
     if (String(inhalt).charAt(0) === '=') return { formulaValue: String(inhalt) };
     return { numberValue: Number(inhalt) };
+  }
+  // Formeln aus der App sind mit Komma geschrieben. Die Sheets-API liest sie in der Sprache der Tabelle;
+  // bei Komma als Dezimalzeichen (z. B. Deutsch) trennt dort das Semikolon die Argumente.
+  function lokal(formel, locale) {
+    let komma = false;
+    try { komma = (1.5).toLocaleString(String(locale || 'en').replace('_', '-')).indexOf(',') >= 0; } catch (e) { komma = false; }
+    if (!komma) return formel;
+    let aus = '', inText = false, inName = false;
+    for (const ch of formel) {
+      if (ch === '"' && !inName) inText = !inText;
+      else if (ch === "'" && !inText) inName = !inName;
+      aus += ch === ',' && !inText && !inName ? ';' : ch;
+    }
+    return aus;
   }
   function updateZelle(sheetId, zeile, spalte, inhalt) {
     return {
@@ -497,9 +511,207 @@
     return ergebnis;
   }
 
+  // ---------- Finanzierung (Immobilienkredite) ----------
+  // Eigenes Blatt "Finanzierung": eine Zeile pro Darlehen. Wird beim Anlegen eines neuen Jahres mitkopiert.
+  const FIN_BLATT = 'Finanzierung';
+  const FIN_KOPF = ['Immobilie', 'Kaufpreis inkl. Nebenkosten', 'Eigenkapital', 'Kreditart', 'Bank', 'Darlehenssumme',
+    'Sollzins % p.a.', 'Anfängliche Tilgung % p.a.', 'Monatsrate', 'Beginn (JJJJ-MM)', 'Zinsbindung (Jahre)', 'Sondertilgung % p.a.', 'Notiz', 'ID',
+    'Tilgungskonto Guthaben', 'Guthaben Stand (JJJJ-MM)', 'Tilgungskonto Sparrate / Monat', 'Tilgungskonto Zinsen % p.a.', 'Laufzeit (Jahre)'];
+  const FIN_FELDER = ['immobilie', 'kaufpreis', 'eigenkapital', 'art', 'bank', 'summe', 'zins', 'tilgung', 'rate', 'beginn', 'bindung', 'sonder', 'notiz', 'id', 'guthaben', 'guthabenStand', 'sparrate', 'sparzins', 'laufzeit'];
+
+  async function finanzierungLaden(id) {
+    const info = await blaetter(id);
+    if (!info.blaetter.find(b => b.title === FIN_BLATT)) return [];
+    const [z] = await werteHolen(id, [q(FIN_BLATT) + '!A2:S200'], 'UNFORMATTED_VALUE');
+    return z.filter(r => r && r[0]).map(r => {
+      const d = {};
+      FIN_FELDER.forEach((f, i) => { d[f] = r[i] === undefined ? '' : r[i]; });
+      ['kaufpreis', 'eigenkapital', 'summe', 'zins', 'tilgung', 'rate', 'bindung', 'sonder', 'guthaben', 'sparrate', 'sparzins', 'laufzeit'].forEach(f => { d[f] = Number(String(d[f]).replace(',', '.')) || 0; });
+      d.beginn = String(d.beginn); d.guthabenStand = String(d.guthabenStand); d.id = String(d.id || Math.random().toString(36).slice(2, 9));
+      return d;
+    });
+  }
+
+  async function finanzierungSpeichern(id, liste) {
+    const info = await blaetter(id);
+    if (!info.blaetter.find(b => b.title === FIN_BLATT)) {
+      await batch(id, [{ addSheet: { properties: { title: FIN_BLATT, gridProperties: { frozenRowCount: 1 } } } }]);
+    }
+    await api(SHEETS + '/' + id + '/values/' + encodeURIComponent(q(FIN_BLATT) + '!A2:S200') + ':clear', { method: 'POST', body: {} });
+    const zeilen = [FIN_KOPF].concat(liste.map(d => FIN_FELDER.map(f => d[f] === undefined ? '' : d[f])));
+    await api(SHEETS + '/' + id + '/values/' + encodeURIComponent(q(FIN_BLATT) + '!A1:S' + zeilen.length) + '?valueInputOption=RAW', {
+      method: 'PUT', body: { values: zeilen }
+    });
+  }
+
+  // ---------- Hinweise in der Tabelle ----------
+  // Was man in der Tabelle von Hand ändern darf: kurzer Text plus ausführliche Notiz (erscheint beim Darüberfahren).
+  // Wird nur in leere Zellen oder über einen früheren Hinweis der App geschrieben.
+  const HINWEIS = 'Hinweis zum Bearbeiten: Maus über diese Zelle halten (bzw. antippen) für die Notiz.';
+  const NOTIZ_TABELLE = [
+    'Was du in der Tabelle von Hand ändern darfst:',
+    '• Beträge in den Monatsspalten (Januar bis Dezember) eintragen oder ändern, auch als Rechnung wie =12,50+3.',
+    '• Texte in der Spalte mit den Anmerkungen.',
+    '• Im Blatt „Ersparnisse - Rücklagen“: Sparrate, aktueller Stand und Zielbestand deiner Sparziele.',
+    '• Im Blatt „Finanzierung“: die Werte deiner Kredite (einfacher in der App unter „Immobilien“).',
+    '',
+    'Bitte nicht:',
+    '• Zeilen oder Spalten einfügen, löschen oder verschieben. Neue Posten übernimmt die App aus der Vorlage.',
+    '• Blätter umbenennen oder Überschriften, Kategorien und Postennamen ändern. Die App findet alles über diese Namen.',
+    '• Zellen mit Formeln überschreiben: Zwischensummen, Gesamtwerte, Fortschritt, verbleibende Monate und alle Zeilen mit „(automatisch)“.'
+  ].join('\n');
+  const NOTIZ_FINANZIERUNG = [
+    'Blatt „Finanzierung“: Hier speichert die App deine Kredite, eine Zeile pro Kredit (berechnet werden die ersten 6).',
+    '',
+    'Erlaubt: Zahlen ändern (Darlehenssumme, Sollzins, Monatsrate, Zinsbindung, Tilgungskonto). Beginn als JJJJ-MM, z. B. 2026-01.',
+    'Wichtig: Die Monatsrate gilt vor der Laufzeit. Wenn du die Laufzeit änderst, passe auch die Monatsrate an, am einfachsten in der App.',
+    '',
+    'Bitte nicht: Spalten einfügen oder verschieben, Überschriften oder die Spalte ID ändern, Leerzeilen zwischen Krediten lassen.',
+    'Kreditart genau so schreiben: „Annuitätendarlehen“ oder „Endfälliges Darlehen“.'
+  ].join('\n');
+  const NOTIZ_AUTO = 'Rechnet sich automatisch aus dem Blatt „Finanzierung“. Bitte hier nichts eintippen; Kredite in der App unter „Immobilien“ ändern.';
+
+  function notizZelle(sheetId, zeile, spalte, text, notiz, grau) {
+    const zelle = { note: notiz };
+    let felder = 'note';
+    if (text !== null) {
+      zelle.userEnteredValue = { stringValue: text };
+      felder += ',userEnteredValue';
+      if (grau) { zelle.userEnteredFormat = { textFormat: { italic: true, foregroundColor: { red: 0.42, green: 0.45, blue: 0.5 } } }; felder += ',userEnteredFormat.textFormat'; }
+    }
+    return { updateCells: { range: { sheetId, startRowIndex: zeile - 1, endRowIndex: zeile, startColumnIndex: spalte - 1, endColumnIndex: spalte }, rows: [{ values: [zelle] }], fields: felder } };
+  }
+
+  async function hinweiseSchreiben(id, info) {
+    info = info || await blaetter(id);
+    const anfragen = [];
+    const frei = v => !String(v || '').trim() || String(v).indexOf('Hinweis') === 0;
+    const monat = info.blaetter.find(s => /^Monats/i.test(s.title));
+    const spar = info.blaetter.find(b => /^Ersparnis/i.test(b.title));
+    const fin = info.blaetter.find(b => b.title === FIN_BLATT);
+    const bereiche = [];
+    if (monat) bereiche.push(q(monat.title) + '!B3');
+    if (spar) bereiche.push(q(spar.title) + '!B3');
+    if (fin) bereiche.push(q(fin.title) + '!U1');
+    const w = bereiche.length ? await werteHolen(id, bereiche, 'FORMATTED_VALUE') : [];
+    let i = 0;
+    const wert = () => { const r = w[i++] || []; return (r[0] || [])[0]; };
+    if (monat && frei(wert())) anfragen.push(notizZelle(monat.sheetId, 3, 2, HINWEIS, NOTIZ_TABELLE, true));
+    if (spar && frei(wert())) anfragen.push(notizZelle(spar.sheetId, 3, 2, HINWEIS, NOTIZ_TABELLE, true));
+    if (fin && frei(wert())) {
+      anfragen.push(notizZelle(fin.sheetId, 1, 21, 'Hinweis: Notiz in dieser Zelle lesen, bevor du hier etwas änderst.', NOTIZ_FINANZIERUNG, true));
+      anfragen.push(notizZelle(fin.sheetId, 1, 1, null, NOTIZ_FINANZIERUNG));
+    }
+    if (anfragen.length) await batch(id, anfragen);
+    return anfragen.length > 0;
+  }
+
+  // Früheres Arbeitsblatt "Immobilienfinanzierung" (Test-Version bis 2026-10-16) entfernen, falls noch vorhanden.
+  async function altesBlattEntfernen(id) {
+    const info = await blaetter(id);
+    const b = info.blaetter.find(x => x.title === 'Immobilienfinanzierung');
+    if (!b) return false;
+    await batch(id, [{ deleteSheet: { sheetId: b.sheetId } }]);
+    return true;
+  }
+
+  // Block "Immobilien" im Blatt "Ersparnisse - Rücklagen" anlegen bzw. aktualisieren (Aufbau in ersparnisblock.js).
+  // Steht unter den Sparzielen; Formate werden von der Sparziel-Tabelle übernommen.
+  async function immobilienErsparnis(id) {
+    const EB = window.ErsparnisBlock;
+    const info = await blaetter(id);
+    const blatt = info.blaetter.find(b => /^Ersparnis/i.test(b.title));
+    if (!blatt || !info.blaetter.find(b => b.title === FIN_BLATT)) return false;
+    const [z] = await werteHolen(id, [q(blatt.title) + '!A1:L300'], 'FORMATTED_VALUE');
+    const text = (r, c) => String(((z[r] || [])[c]) || '').trim();
+    let z0 = z.findIndex((r, i) => text(i, 1) === EB.MARKE) + 1;
+    const neu = !z0;
+    if (neu) z0 = z.length + 2;
+    const kopf = z.findIndex((r, i) => i < z0 - 1 && (r || []).some(v => /Zielbestand/i.test(String(v)))) + 1;
+    const gesamt = z.findIndex((r, i) => i < z0 - 1 && /^Gesamt/i.test(text(i, 1))) + 1;
+    const sid = blatt.sheetId, g = blatt.gridProperties || {};
+    const anfragen = [];
+    const bisZeile = z0 + EB.ZEILEN;
+    if ((g.rowCount || 0) < bisZeile) anfragen.push({ appendDimension: { sheetId: sid, dimension: 'ROWS', length: bisZeile - (g.rowCount || 0) } });
+    if ((g.columnCount || 0) < 11) anfragen.push({ appendDimension: { sheetId: sid, dimension: 'COLUMNS', length: 11 - (g.columnCount || 0) } });
+    const bereich = (z1, z2, s1, s2) => ({ sheetId: sid, startRowIndex: z1 - 1, endRowIndex: z2, startColumnIndex: s1 - 1, endColumnIndex: s2 });
+    const formatVon = (quelle, ziel) => ({ copyPaste: { source: quelle, destination: ziel, pasteType: 'PASTE_FORMAT' } });
+    const kz = z0 + 2, d1 = kz + 1, d2 = kz + EB.MAX + 2;
+    if (kopf) {
+      // Überschriftzeile und Datenzeilen wie die Sparziel-Tabelle formatieren (J und K wie die Euro-Spalte D)
+      anfragen.push(formatVon(bereich(kopf, kopf, 2, 9), bereich(kz, kz, 2, 9)),
+        formatVon(bereich(kopf, kopf, 4, 4), bereich(kz, kz, 10, 11)),
+        formatVon(bereich(kopf + 1, kopf + 1, 2, 9), bereich(d1, d2, 2, 9)),
+        formatVon(bereich(kopf + 1, kopf + 1, 4, 4), bereich(d1, d2, 10, 11)));
+    }
+    anfragen.push(notizZelle(sid, z0 + 1, 2, null, NOTIZ_AUTO));
+    EB.zellen(z0, gesamt).forEach(c => {
+      const m = /^([A-Z]+)(\d+)$/.exec(c.a1), spalte = m[1].charCodeAt(0) - 64, zeile = Number(m[2]);
+      const zelle = { userEnteredValue: c.f !== undefined ? { formulaValue: lokal(c.f, info.locale) } : { stringValue: String(c.v) } };
+      let felder = 'userEnteredValue';
+      if (c.fett || c.grau || (c.kopf && !kopf)) {
+        zelle.userEnteredFormat = { textFormat: { bold: !!(c.fett || c.kopf), italic: !!c.grau } };
+        felder += ',userEnteredFormat.textFormat.bold,userEnteredFormat.textFormat.italic';
+      }
+      anfragen.push({ updateCells: { range: bereich(zeile, zeile, spalte, spalte), rows: [{ values: [zelle] }], fields: felder } });
+    });
+    await batch(id, anfragen);
+    try { await hinweiseSchreiben(id, info); } catch (err) { console.warn('Hinweise nicht geschrieben', err); }
+    try { await immobilienMonat(id, info); } catch (err) { console.warn('Immobilien-Block in der Monatsübersicht nicht angelegt', err); }
+    return neu;
+  }
+
+  // Zeile "Tilgung Immobilie (automatisch)" im Sparbereich der Monatsübersicht: je Monat die Tilgung bzw. Sparrate
+  // aller Kredite (Formel aus ersparnisblock.js). Zählt in die Zwischensumme der Sparbeiträge.
+  async function immobilienMonat(id, info) {
+    const EB = window.ErsparnisBlock;
+    info = info || await blaetter(id);
+    let s = await struktur(id, info);
+    const sid = s.blatt.sheetId;
+    // Früheren Block ganz unten (Version 2026-10-16f) wieder entfernen
+    const [alt] = await werteHolen(id, [q(s.blatt.title) + '!B1:B400'], 'FORMATTED_VALUE');
+    const altZeile = alt.findIndex(r => String((r || [])[0] || '').trim() === EB.MARKE_MONAT_ALT);
+    if (altZeile >= 0) {
+      await batch(id, [{ deleteDimension: { range: { sheetId: sid, dimension: 'ROWS', startIndex: altZeile, endIndex: altZeile + 2 * EB.MAX + 6 } } }]);
+      s = await struktur(id, info);
+    }
+    const b = s.bereiche.find(x => /SPAR/i.test(x.name));
+    if (!b || !b.posten.length) return false;
+    let zeile = (b.posten.find(p => p.bezeichnung === EB.ZEILE_MONAT) || {}).zeile;
+    if (!zeile) {
+      zeile = b.posten[b.posten.length - 1].zeile + 1;
+      await batch(id, [{ insertDimension: { range: { sheetId: sid, dimension: 'ROWS', startIndex: zeile - 1, endIndex: zeile }, inheritFromBefore: true } }]);
+      if (b.zwischensumme) {
+        const zs = b.zwischensumme + 1, letzte = zeile - 1;
+        const [zr] = await werteHolen(id, [q(s.blatt.title) + '!A' + zs + ':Z' + zs], 'FORMULA');
+        const updates = [];
+        (zr[0] || []).forEach((f, i) => {
+          if (typeof f !== 'string' || f.charAt(0) !== '=') return;
+          const neuF = f.replace(new RegExp(':([A-Z]{1,2})' + letzte + '(?![0-9])', 'g'), ':$1' + zeile);
+          if (neuF !== f) updates.push(updateZelle(sid, zs, i + 1, neuF));
+        });
+        if (updates.length) await batch(id, updates);
+      }
+    }
+    const datum = s.kopfZeile + 1, sp = n => String.fromCharCode(64 + n);
+    const erste = s.monate[0].spalte, letzteSp = s.monate[11].spalte;
+    const zellen = [[2, 'Immobilie'], [3, EB.ZEILE_MONAT], [4, 'Monatlich']];
+    s.monate.forEach(m => zellen.push([m.spalte, lokal(EB.monatsFormel(sp(m.spalte), datum), info.locale)]));
+    zellen.push([letzteSp + 1, lokal('=SUM(' + sp(erste) + zeile + ':' + sp(letzteSp) + zeile + ')', info.locale)]);
+    zellen.push([letzteSp + 2, 'Tilgung bzw. Sparrate aufs Tilgungskonto, rechnet sich aus deinen Krediten (Blatt „Finanzierung“)']);
+    const anf = [notizZelle(sid, zeile, 3, null, NOTIZ_AUTO)];
+    await batch(id, anf.concat(zellen.map(([c, v]) => ({
+      updateCells: {
+        range: { sheetId: sid, startRowIndex: zeile - 1, endRowIndex: zeile, startColumnIndex: c - 1, endColumnIndex: c },
+        rows: [{ values: [{ userEnteredValue: v.charAt(0) === '=' ? { formulaValue: v } : { stringValue: v } }] }], fields: 'userEnteredValue'
+      }
+    }))));
+    return true;
+  }
+
   window.Google = {
     TEST, anmelden, abmelden, tokenAusAdresse, token, restMinuten, nutzer, NichtAngemeldet,
     meineDateien, kandidaten, verbinden, ersterFinanzplaner, jahrAnlegen,
-    struktur, verlauf, blaetter, hinzufuegen, rueckgaengig, vorlageAbgleichen, fehlendeAusVorlage, sparziele
+    struktur, verlauf, blaetter, hinzufuegen, rueckgaengig, vorlageAbgleichen, fehlendeAusVorlage, sparziele, finanzierungLaden, finanzierungSpeichern, altesBlattEntfernen, immobilienErsparnis, hinweiseSchreiben
   };
 })();

@@ -14,7 +14,7 @@
   function meldung(text, klasse, ziel) { const m = $(ziel || 'meldung'); m.textContent = text || ''; m.className = 'meldung ' + (klasse || ''); }
   function zeige(bereiche) {
     ['anmeldung', 'einrichten', 'formular', 'verlauf', 'fuss'].forEach(id => { $(id).hidden = bereiche.indexOf(id) < 0; });
-    if (bereiche.indexOf('formular') < 0) { $('hinweisVorlage').hidden = true; $('uebersicht').hidden = true; }
+    if (bereiche.indexOf('formular') < 0) { $('hinweisVorlage').hidden = true; $('uebersicht').hidden = true; $('finanzierung').hidden = true; }
     const app = bereiche.indexOf('formular') >= 0;
     $('leiste').hidden = !app; $('jahr').hidden = !app;
     document.body.classList.toggle('mit-leiste', app);
@@ -156,9 +156,10 @@
   function fuellePosten() {
     const b = bereich(), sel = $('posten');
     sel.innerHTML = '';
-    b.posten.forEach((p, i) => sel.add(new Option(p.bezeichnung + ' (' + p.kategorie + ')', i)));
+    // Zeilen mit „(automatisch)“ rechnen sich selbst und werden nicht zum Eintragen angeboten
+    b.posten.forEach((p, i) => { if (!p.auto) sel.add(new Option(p.bezeichnung + ' (' + p.kategorie + ')', i)); });
     const gemerkt = hole('posten:' + b.name);
-    if (gemerkt !== null && gemerkt < b.posten.length) sel.value = gemerkt;
+    if (gemerkt !== null && gemerkt < b.posten.length && !b.posten[gemerkt].auto) sel.value = gemerkt;
     zeigeBisher();
   }
 
@@ -172,13 +173,14 @@
   }
 
   function setzeModus(m) {
-    const gibt = x => x === 'uebersicht' || daten.bereiche.some(b => art(b) === x);
-    modus = (MODI[m] || m === 'uebersicht') && gibt(m) ? m : 'variabel';
+    const gibt = x => x === 'uebersicht' || x === 'finanzierung' || daten.bereiche.some(b => art(b) === x);
+    modus = (MODI[m] || m === 'uebersicht' || m === 'finanzierung') && gibt(m) ? m : 'variabel';
     merke('modus', modus);
     tabs.forEach(t => { t.classList.toggle('aktiv', t.dataset.modus === modus); t.hidden = !gibt(t.dataset.modus); });
-    const dash = modus === 'uebersicht';
-    $('formular').hidden = dash; $('verlauf').hidden = dash; $('uebersicht').hidden = !dash;
+    const dash = modus === 'uebersicht', fin = modus === 'finanzierung';
+    $('formular').hidden = dash || fin; $('verlauf').hidden = dash || fin; $('uebersicht').hidden = !dash; $('finanzierung').hidden = !fin;
     if (dash) { $('titel').textContent = 'Übersicht'; zeigeDashboard(); return; }
+    if (fin) { $('titel').textContent = 'Immobilien'; window.Finanzierung.zeige($('finanzierung'), dateien[jahr].id); return; }
     $('titel').textContent = MODI[modus].titel;
     $('speichern').textContent = MODI[modus].knopf;
     meldung('');
@@ -467,6 +469,9 @@
       $('hinweisVorlage').dataset.fehlend = fehlend.join('|');
       $('hinweisVorlage').hidden = false;
     } catch (err) { console.warn('Vorlage nicht geprüft', err); }
+    // Hinweise zum Bearbeiten einmal je Tabelle hineinschreiben
+    const hk = 'kosten.hinweise:' + dateien[jahr].id;
+    if (hole(hk) !== '1') G.hinweiseSchreiben(dateien[jahr].id).then(() => merke(hk, '1')).catch(err => console.warn('Hinweise nicht geschrieben', err));
   }
   $('hinweisJetzt').onclick = () => { $('hinweisVorlage').hidden = true; abgleichen(true); };
   $('hinweisSpaeter').onclick = () => {
