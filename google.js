@@ -657,7 +657,8 @@
     });
     await batch(id, anfragen);
     try { await hinweiseSchreiben(id, info); } catch (err) { console.warn('Hinweise nicht geschrieben', err); }
-    try { await immobilienMonat(id, info); } catch (err) { console.warn('Immobilien-Block in der Monatsübersicht nicht angelegt', err); }
+    try { await immobilienMonat(id, info); }
+    catch (err) { console.warn('Immobilien-Zeilen in der Monatsübersicht nicht angelegt', err); throw new Error('Die Zeilen in der Monatsübersicht konnten nicht angelegt werden: ' + (err.message || err)); }
     return neu;
   }
 
@@ -681,8 +682,11 @@
       { bereich: x => /FIXKOSTEN/i.test(x.name) && /WOHNEN/i.test(x.name), name: EB.ZEILE_ZINSEN, zinsen: true, notiz: 'Zinsanteil deiner Kreditraten, rechnet sich aus deinen Krediten (Blatt „Finanzierung“)' }
     ];
     let geschrieben = false;
+    const fehler = [];
     for (const def of zeilen) {
+     try {
       const b = s.bereiche.find(def.bereich);
+      if (!b) throw new Error('Bereich für „' + def.name + '“ nicht gefunden');
       if (!b || !b.posten.length) continue;
       let zeile = (b.posten.find(p => p.bezeichnung === def.name) || {}).zeile;
       if (!zeile) {
@@ -713,9 +717,14 @@
         }
       }))));
       geschrieben = true;
+     } catch (err) {
+      console.warn(def.name, err);
+      fehler.push(def.name + ': ' + (err.message || err));
+     }
       // Nach dem Einfügen verschieben sich die Zeilen darunter: Struktur neu lesen
       s = await struktur(id, info);
     }
+    if (fehler.length) throw new Error(fehler.join(' | '));
     return geschrieben;
   }
 

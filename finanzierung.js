@@ -394,7 +394,7 @@
       try { await window.Google.altesBlattEntfernen(dateiId); } catch (err) { console.warn('Altes Arbeitsblatt nicht entfernt', err); }
       // Block "Immobilien" im Blatt "Ersparnisse - Rücklagen"
       try { if (await window.Google.immobilienErsparnis(dateiId)) text += ' Im Blatt „Ersparnisse - Rücklagen“ steht jetzt der Block „Immobilien“.'; }
-      catch (err) { console.warn('Ersparnis-Block nicht angelegt', err); }
+      catch (err) { console.warn('Ersparnis-Block nicht angelegt', err); text += ' Achtung: ' + (err.message || err); }
       zeichne();
       meldung(text, 'ok');
     } catch (err) {
