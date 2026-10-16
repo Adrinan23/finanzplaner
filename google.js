@@ -675,38 +675,48 @@
       await batch(id, [{ deleteDimension: { range: { sheetId: sid, dimension: 'ROWS', startIndex: altZeile, endIndex: altZeile + 2 * EB.MAX + 6 } } }]);
       s = await struktur(id, info);
     }
-    const b = s.bereiche.find(x => /SPAR/i.test(x.name));
-    if (!b || !b.posten.length) return false;
-    let zeile = (b.posten.find(p => p.bezeichnung === EB.ZEILE_MONAT) || {}).zeile;
-    if (!zeile) {
-      zeile = b.posten[b.posten.length - 1].zeile + 1;
-      await batch(id, [{ insertDimension: { range: { sheetId: sid, dimension: 'ROWS', startIndex: zeile - 1, endIndex: zeile }, inheritFromBefore: true } }]);
-      if (b.zwischensumme) {
-        const zs = b.zwischensumme + 1, letzte = zeile - 1;
-        const [zr] = await werteHolen(id, [q(s.blatt.title) + '!A' + zs + ':Z' + zs], 'FORMULA');
-        const updates = [];
-        (zr[0] || []).forEach((f, i) => {
-          if (typeof f !== 'string' || f.charAt(0) !== '=') return;
-          const neuF = f.replace(new RegExp(':([A-Z]{1,2})' + letzte + '(?![0-9])', 'g'), ':$1' + zeile);
-          if (neuF !== f) updates.push(updateZelle(sid, zs, i + 1, neuF));
-        });
-        if (updates.length) await batch(id, updates);
+    // Tilgung bei den Sparbeiträgen, Zinsen bei den Fixkosten (Wohnen)
+    const zeilen = [
+      { bereich: x => /SPAR/i.test(x.name), name: EB.ZEILE_MONAT, zinsen: false, notiz: 'Tilgung bzw. Sparrate aufs Tilgungskonto, rechnet sich aus deinen Krediten (Blatt „Finanzierung“)' },
+      { bereich: x => /FIXKOSTEN/i.test(x.name) && /WOHNEN/i.test(x.name), name: EB.ZEILE_ZINSEN, zinsen: true, notiz: 'Zinsanteil deiner Kreditraten, rechnet sich aus deinen Krediten (Blatt „Finanzierung“)' }
+    ];
+    let geschrieben = false;
+    for (const def of zeilen) {
+      const b = s.bereiche.find(def.bereich);
+      if (!b || !b.posten.length) continue;
+      let zeile = (b.posten.find(p => p.bezeichnung === def.name) || {}).zeile;
+      if (!zeile) {
+        zeile = b.posten[b.posten.length - 1].zeile + 1;
+        await batch(id, [{ insertDimension: { range: { sheetId: sid, dimension: 'ROWS', startIndex: zeile - 1, endIndex: zeile }, inheritFromBefore: true } }]);
+        if (b.zwischensumme) {
+          const zs = b.zwischensumme + 1, letzte = zeile - 1;
+          const [zr] = await werteHolen(id, [q(s.blatt.title) + '!A' + zs + ':Z' + zs], 'FORMULA');
+          const updates = [];
+          (zr[0] || []).forEach((f, i) => {
+            if (typeof f !== 'string' || f.charAt(0) !== '=') return;
+            const neuF = f.replace(new RegExp(':([A-Z]{1,2})' + letzte + '(?![0-9])', 'g'), ':$1' + zeile);
+            if (neuF !== f) updates.push(updateZelle(sid, zs, i + 1, neuF));
+          });
+          if (updates.length) await batch(id, updates);
+        }
       }
+      const datum = s.kopfZeile + 1, sp = n => String.fromCharCode(64 + n);
+      const erste = s.monate[0].spalte, letzteSp = s.monate[11].spalte;
+      const zellen = [[2, 'Immobilie'], [3, def.name], [4, 'Monatlich']];
+      s.monate.forEach(m => zellen.push([m.spalte, lokal(EB.monatsFormel(sp(m.spalte), datum, def.zinsen), info.locale)]));
+      zellen.push([letzteSp + 1, lokal('=SUM(' + sp(erste) + zeile + ':' + sp(letzteSp) + zeile + ')', info.locale)]);
+      zellen.push([letzteSp + 2, def.notiz]);
+      await batch(id, [notizZelle(sid, zeile, 3, null, NOTIZ_AUTO)].concat(zellen.map(([c, v]) => ({
+        updateCells: {
+          range: { sheetId: sid, startRowIndex: zeile - 1, endRowIndex: zeile, startColumnIndex: c - 1, endColumnIndex: c },
+          rows: [{ values: [{ userEnteredValue: v.charAt(0) === '=' ? { formulaValue: v } : { stringValue: v } }] }], fields: 'userEnteredValue'
+        }
+      }))));
+      geschrieben = true;
+      // Nach dem Einfügen verschieben sich die Zeilen darunter: Struktur neu lesen
+      s = await struktur(id, info);
     }
-    const datum = s.kopfZeile + 1, sp = n => String.fromCharCode(64 + n);
-    const erste = s.monate[0].spalte, letzteSp = s.monate[11].spalte;
-    const zellen = [[2, 'Immobilie'], [3, EB.ZEILE_MONAT], [4, 'Monatlich']];
-    s.monate.forEach(m => zellen.push([m.spalte, lokal(EB.monatsFormel(sp(m.spalte), datum), info.locale)]));
-    zellen.push([letzteSp + 1, lokal('=SUM(' + sp(erste) + zeile + ':' + sp(letzteSp) + zeile + ')', info.locale)]);
-    zellen.push([letzteSp + 2, 'Tilgung bzw. Sparrate aufs Tilgungskonto, rechnet sich aus deinen Krediten (Blatt „Finanzierung“)']);
-    const anf = [notizZelle(sid, zeile, 3, null, NOTIZ_AUTO)];
-    await batch(id, anf.concat(zellen.map(([c, v]) => ({
-      updateCells: {
-        range: { sheetId: sid, startRowIndex: zeile - 1, endRowIndex: zeile, startColumnIndex: c - 1, endColumnIndex: c },
-        rows: [{ values: [{ userEnteredValue: v.charAt(0) === '=' ? { formulaValue: v } : { stringValue: v } }] }], fields: 'userEnteredValue'
-      }
-    }))));
-    return true;
+    return geschrieben;
   }
 
   window.Google = {

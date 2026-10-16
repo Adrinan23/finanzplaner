@@ -2,6 +2,12 @@
 // Neue Eintraege oben anfuegen. Gibt es nichts Neues, erscheint keine Meldung.
 window.NEUIGKEITEN = [
   {
+    id: '2026-10-16b',
+    punkte: [
+      'Die Zinsen deiner Immobilienkredite stehen jetzt automatisch bei den Fixkosten (Bereich Wohnen) in der Zeile „Zinsen Immobilienkredit (automatisch)“. Damit ist die ganze Kreditrate im Saldo: Zinsen als Fixkosten, Tilgung als Sparbeitrag.'
+    ]
+  },
+  {
     id: '2026-10-16',
     punkte: [
       'Neuer Bereich „Immobilien“ unten in der Leiste: Trage dein Annuitätendarlehen oder endfälliges Darlehen ein.',

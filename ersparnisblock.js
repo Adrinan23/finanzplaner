@@ -59,8 +59,10 @@
   // Zeile im Sparbereich der Monatsübersicht: Ersparnis aller Kredite im Monat der Spalte X
   // (Tilgung beim Annuitätendarlehen, Sparrate aufs Tilgungskonto beim endfälligen Darlehen).
   const ZEILE_MONAT = 'Tilgung Immobilie (automatisch)';
+  const ZEILE_ZINSEN = 'Zinsen Immobilienkredit (automatisch)';
   const MARKE_MONAT_ALT = 'IMMOBILIEN: ERSPARNIS UND GEDACHTE ERSPARNIS';
-  function monatsFormel(X, datum) {
+  // zinsen=true: stattdessen die Zinsen aller Kredite im Monat (für die Fixkosten)
+  function monatsFormel(X, datum, zinsen) {
     const idx = c => 'IF(ISNUMBER(' + c + '),YEAR(' + c + ')*12+MONTH(' + c + ')-1,VALUE(LEFT(' + c + ',4))*12+VALUE(MID(' + c + ',6,2))-1)';
     const M = '(YEAR(' + X + '$' + datum + ')*12+MONTH(' + X + '$' + datum + ')-1)';
     const teile = [];
@@ -69,10 +71,12 @@
       const zr = '(' + F('G') + '/1200)', rate = 'IF(' + F('I') + '>0,' + F('I') + ',' + F('F') + '*(' + F('G') + '+' + F('H') + ')/1200)';
       const start = idx(F('J')), kk = '(' + M + '-' + start + ')', ende = '(' + start + '+N(' + F('K') + ')*12-1)';
       const rest = 'MAX(0,-FV(' + zr + ',' + kk + ',-' + rate + ',' + F('F') + '))';
-      teile.push('IF(' + F('A') + '="",0,IF(' + F('D') + '="Endfälliges Darlehen",IF(AND(' + M + '>=' + start + ',' + M + '<=' + ende + '),N(' + F('Q') + '),0),IF(' + kk + '<0,0,IF(' + rest + '=0,0,MIN(' + rest + ',' + rate + '-' + rest + '*' + zr + ')))))');
+      const endf = zinsen ? F('F') + '*' + zr : 'N(' + F('Q') + ')';
+      const annu = zinsen ? rest + '*' + zr : 'IF(' + rest + '=0,0,MIN(' + rest + ',' + rate + '-' + rest + '*' + zr + '))';
+      teile.push('IF(' + F('A') + '="",0,IF(' + F('D') + '="Endfälliges Darlehen",IF(AND(' + M + '>=' + start + ',' + M + '<=' + ende + '),' + endf + ',0),IF(' + kk + '<0,0,' + annu + ')))');
     }
     return '=ROUND(' + teile.join('+') + ',2)';
   }
 
-  global.ErsparnisBlock = { MARKE, MAX, KOPF, zellen, ZEILEN: 2 + 1 + MAX + 2, ZEILE_MONAT, MARKE_MONAT_ALT, monatsFormel };
+  global.ErsparnisBlock = { MARKE, MAX, KOPF, zellen, ZEILEN: 2 + 1 + MAX + 2, ZEILE_MONAT, ZEILE_ZINSEN, MARKE_MONAT_ALT, monatsFormel };
 })(typeof window !== 'undefined' ? window : globalThis);
