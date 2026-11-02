@@ -2,6 +2,13 @@
 // Neue Eintraege oben anfuegen. Gibt es nichts Neues, erscheint keine Meldung.
 window.NEUIGKEITEN = [
   {
+    id: '2026-11-02b',
+    punkte: [
+      'Neue Einnahme-Posten in der Vorlage: Nebenjob / Minijob, Selbstständigkeit / Freelance, Mieteinnahmen, Steuererstattung, Elterngeld / Mutterschaftsgeld, Krankengeld / Arbeitslosengeld, Geldgeschenke und Cashback / Prämien. Übernimm sie mit „Jetzt übernehmen“.',
+      'Doppelte Begriffe in Posten-Namen sind weg, z. B. heißt „Verkäufe / Rückerstattungen / Boni“ jetzt „Verkäufe / Rückerstattungen“. Die App benennt die Zeilen in deiner Tabelle automatisch um, deine Beträge bleiben erhalten.'
+    ]
+  },
+  {
     id: '2026-11-02',
     punkte: [
       'Wiederholen geht jetzt jeden Monat oder alle 2, 3, 4 oder 6 Monate. Bei vierteljährlichen Posten wie dem Rundfunkbeitrag (GEZ) ist „alle 3 Monate“ schon vorausgewählt: Trägst du im Januar ein, landet der Betrag auch im April, Juli und Oktober.',

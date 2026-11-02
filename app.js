@@ -486,6 +486,15 @@
   async function pruefeVorlage() {
     $('hinweisVorlage').hidden = true;
     try {
+      // Umbenannte Posten (z. B. ohne doppelte Begriffe) einmal je Tabelle angleichen
+      const nk = 'kosten.namen1:' + dateien[jahr].id;
+      if (hole(nk) !== '1') {
+        try {
+          const n = await G.namenAktualisieren(dateien[jahr].id);
+          merke(nk, '1');
+          if (n.umbenannt.length || n.entfernt.length) return ladeJahr(jahr);
+        } catch (e) { console.warn('Namen nicht angeglichen', e); }
+      }
       const fehlend = await G.fehlendeAusVorlage(dateien[jahr].id);
       let weg = null;
       try { weg = sessionStorage.getItem('kosten.hinweisWeg'); } catch (e) { }

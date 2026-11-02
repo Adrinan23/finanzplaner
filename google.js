@@ -483,9 +483,51 @@
     return ziele;
   }
 
+  // Umbenannte Posten der Vorlage (alter Name -> neuer Name, jeweils "Kategorie - Bezeichnung").
+  // Beim Abgleich gelten alter und neuer Name als derselbe Posten, damit keine doppelten Zeilen entstehen.
+  // Neue Umbenennungen hier eintragen, BEVOR die Zeile in der Vorlage umbenannt wird.
+  const UMBENENNUNGEN = [
+    ['Sonstiges - Verkäufe / Rückerstattungen / Boni', 'Sonstiges - Verkäufe / Rückerstattungen'],
+    ['Lebensmittel - Supplements, Protein, Creatin', 'Lebensmittel - Supplements / Protein / Creatin'],
+    ['Gesundheit - Apotheke, Zuzahlungen & Nahrungsergänzung', 'Gesundheit - Apotheke & Zuzahlungen']
+  ];
+  const normName = s => String(s).replace(/\s+/g, ' ').trim().toLowerCase();
+  function kanon(name) {
+    const n = normName(name);
+    const u = UMBENENNUNGEN.find(x => normName(x[0]) === n);
+    return u ? normName(u[1]) : n;
+  }
+
+  // Bringt alte Posten-Namen in der Datei auf den neuen Stand. Gibt es den neuen Namen schon
+  // (doppelte Zeile), wird die alte Zeile nur entfernt, wenn sie in allen Monaten leer ist.
+  // Betraege werden nie geloescht.
+  async function namenAktualisieren(id) {
+    const s = await struktur(id);
+    const alle = [].concat.apply([], s.bereiche.map(b => b.posten));
+    const umbenennen = [], loeschen = [], ergebnis = { umbenannt: [], entfernt: [], doppelt: [] };
+    UMBENENNUNGEN.forEach(([alt, neu]) => {
+      const p = alle.find(x => normName(x.name) === normName(alt));
+      if (!p) return;
+      const schonDa = alle.some(x => x !== p && normName(x.name) === normName(neu));
+      if (!schonDa) {
+        const bez = neu.slice(neu.indexOf(' - ') + 3);
+        umbenennen.push(updateText(s.blatt.sheetId, p.zeile, 3, bez));
+        ergebnis.umbenannt.push(p.bezeichnung + ' → ' + bez);
+      } else if (p.werte.every(w => !w)) {
+        loeschen.push(p.zeile);
+        ergebnis.entfernt.push(p.bezeichnung);
+      } else ergebnis.doppelt.push(p.bezeichnung);
+    });
+    const anfragen = umbenennen.concat(loeschen.sort((a, b) => b - a).map(z => ({
+      deleteDimension: { range: { sheetId: s.blatt.sheetId, dimension: 'ROWS', startIndex: z - 1, endIndex: z } }
+    })));
+    if (anfragen.length) await batch(id, anfragen);
+    return ergebnis;
+  }
+
   // Nur pruefen: welche Posten der Vorlage fehlen in dieser Datei? (fuer den Hinweis beim Start)
   async function fehlendeAusVorlage(id) {
-    const norm = s => s.replace(/\s+/g, ' ').trim().toLowerCase();
+    const norm = kanon;
     const [vorlage, eigene] = await Promise.all([struktur(CFG.VORLAGE_ID), struktur(id)]);
     const fehlend = [];
     vorlage.bereiche.forEach(vb => {
@@ -497,10 +539,11 @@
   }
 
   async function vorlageAbgleichen(id) {
+    await namenAktualisieren(id);
     const vorlage = await struktur(CFG.VORLAGE_ID);
     const vorlageZeilen = await werteHolen(CFG.VORLAGE_ID, [q(vorlage.blatt.title) + '!A1:Z300'], 'FORMULA');
     const ergebnis = { neu: [], fehlendeBereiche: [] };
-    const norm = s => s.replace(/\s+/g, ' ').trim().toLowerCase();
+    const norm = kanon;
 
     for (const vb of vorlage.bereiche) {
       let s = await struktur(id);
@@ -833,6 +876,6 @@
   window.Google = {
     TEST, anmelden, abmelden, tokenAusAdresse, token, restMinuten, nutzer, NichtAngemeldet,
     meineDateien, kandidaten, verbinden, ersterFinanzplaner, jahrAnlegen,
-    SKRIPT_SCOPE, struktur, verlauf, blaetter, hinzufuegen, taktAusTurnus, turnusSkriptVersion, turnusSkriptEinrichten, turnusSkriptMerken, rueckgaengig, vorlageAbgleichen, fehlendeAusVorlage, sparziele, finanzierungLaden, finanzierungSpeichern, altesBlattEntfernen, immobilienErsparnis, hinweiseSchreiben
+    SKRIPT_SCOPE, struktur, verlauf, blaetter, hinzufuegen, taktAusTurnus, turnusSkriptVersion, turnusSkriptEinrichten, turnusSkriptMerken, rueckgaengig, vorlageAbgleichen, namenAktualisieren, fehlendeAusVorlage, sparziele, finanzierungLaden, finanzierungSpeichern, altesBlattEntfernen, immobilienErsparnis, hinweiseSchreiben
   };
 })();
