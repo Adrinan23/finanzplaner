@@ -353,7 +353,7 @@
     info = info || await blaetter(id);
     if (!info.blaetter.find(b => b.title === LOG_BLATT)) return [];
     const [z] = await werteHolen(id, [q(LOG_BLATT) + '!A2:I'], 'UNFORMATTED_VALUE');
-    const start = Math.max(0, z.length - 30);
+    const start = Math.max(0, z.length - 10);
     // Wie oft jeder Posten benutzt wurde (ein Eintrag mit Wiederholen zaehlt einmal, rueckgaengig gemachte nicht)
     const nutzung = {}, gesehen = {};
     z.forEach(r => {
