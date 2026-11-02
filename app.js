@@ -498,11 +498,12 @@
       const fehlend = await G.fehlendeAusVorlage(dateien[jahr].id);
       let weg = null;
       try { weg = sessionStorage.getItem('kosten.hinweisWeg'); } catch (e) { }
-      if (!fehlend.length || weg === fehlend.join('|')) return;
+      if (fehlend.length && weg !== fehlend.join('|')) {
       $('hinweisText').textContent = 'Neue Posten verfügbar: ' + fehlend.join(', ') +
         '. Du kannst sie jetzt in deine Tabelle übernehmen. Deine Einträge und Beträge bleiben dabei vollständig erhalten.';
       $('hinweisVorlage').dataset.fehlend = fehlend.join('|');
       $('hinweisVorlage').hidden = false;
+      }
     } catch (err) { console.warn('Vorlage nicht geprüft', err); }
     pruefeSkript();
     // Hinweise zum Bearbeiten einmal je Tabelle hineinschreiben
@@ -525,6 +526,10 @@
       if (await G.turnusSkriptVersion(dateien[jahr].id)) return;
       meldung('', '', 'meldungSkript');
       $('hinweisSkript').hidden = false;
+      // Zurueck von der Google-Zustimmung: Einrichtung direkt fortsetzen
+      let weiter = null;
+      try { weiter = sessionStorage.getItem('kosten.skriptWeiter'); sessionStorage.removeItem('kosten.skriptWeiter'); } catch (e) { }
+      if (weiter === dateien[jahr].id) skriptEinrichten.call($('skriptJetzt'));
     } catch (err) { console.warn('Turnus-Automatik nicht geprüft', err); }
   }
   $('skriptSpaeter').onclick = () => {
@@ -558,7 +563,8 @@
     } catch (err) {
       const t = String(err && err.message || err);
       if (/insufficient authentication scopes|insufficient.*scope|ACCESS_TOKEN_SCOPE_INSUFFICIENT/i.test(t)) {
-        meldung('Dafür braucht die App einmal deine Zustimmung. Du wirst gleich zu Google weitergeleitet, danach bitte noch einmal auf „Jetzt einrichten“ tippen.', '', 'meldungSkript');
+        meldung('Dafür braucht die App einmal deine Zustimmung. Du wirst gleich zu Google weitergeleitet, danach geht die Einrichtung von selbst weiter.', '', 'meldungSkript');
+        try { sessionStorage.setItem('kosten.skriptWeiter', dateien[jahr].id); } catch (e) { }
         setTimeout(() => G.anmelden(false, G.SKRIPT_SCOPE), 2500);
       } else if (/has not enabled the Apps Script API|usersettings/i.test(t)) {
         $('meldungSkript').innerHTML = 'Einmalig nötig: Öffne <a href="https://script.google.com/home/usersettings" target="_blank" rel="noopener">script.google.com/home/usersettings</a>, schalte „Google Apps Script API“ auf <b>An</b> und tippe dann noch einmal auf „Jetzt einrichten“.';
