@@ -10,11 +10,18 @@
   let jahr = null;    // gewaehltes Jahr
   let daten = null;   // Struktur der Tabelle des gewaehlten Jahres
   let modus = 'variabel';
+  // Konten-Auswahl (ausgeschaltete Posten) und wie oft jeder Posten benutzt wurde, je Tabelle
+  let auswahl = { aus: [], tabelle: false };
+  let nutzung = {};
+  const ladeLokal = (k, leer) => { try { return JSON.parse(hole(k) || 'null') || leer; } catch (e) { return leer; } };
+  function setzeAuswahl(a) { auswahl = a; merke('kosten.auswahl:' + dateien[jahr].id, JSON.stringify(a)); }
+  function setzeNutzung(n) { if (!n) return; nutzung = n; merke('kosten.nutzung:' + dateien[jahr].id, JSON.stringify(n)); }
+  function ausgeschaltet(p) { const n = G.normName(p.name); return auswahl.aus.some(x => G.normName(x) === n); }
 
   function meldung(text, klasse, ziel) { const m = $(ziel || 'meldung'); m.textContent = text || ''; m.className = 'meldung ' + (klasse || ''); }
   function zeige(bereiche) {
     ['anmeldung', 'einrichten', 'formular', 'verlauf', 'fuss'].forEach(id => { $(id).hidden = bereiche.indexOf(id) < 0; });
-    if (bereiche.indexOf('formular') < 0) { $('hinweisVorlage').hidden = true; $('hinweisSkript').hidden = true; $('uebersicht').hidden = true; $('finanzierung').hidden = true; }
+    if (bereiche.indexOf('formular') < 0) { $('hinweisVorlage').hidden = true; $('hinweisSkript').hidden = true; $('uebersicht').hidden = true; $('finanzierung').hidden = true; $('weitere').hidden = true; $('kontenAuswahl').hidden = true; }
     const app = bereiche.indexOf('formular') >= 0;
     $('leiste').hidden = !app; $('jahr').hidden = !app;
     document.body.classList.toggle('mit-leiste', app);
@@ -106,6 +113,7 @@
     const pi = $('posten').value, bi = $('bereich').value;
     daten = struktur;
     if (modus === 'uebersicht') { zeigeDashboard(); zeigeVerlauf(verlauf); return; }
+    if (!MODI[modus]) { zeigeVerlauf(verlauf); return; }
     fuelleBereiche(); $('bereich').value = bi; fuellePosten(); $('posten').value = pi; zeigeBisher(); taktVorschlagen();
     zeigeVerlauf(verlauf);
   }
@@ -157,16 +165,30 @@
     const b = bereich(), sel = $('posten');
     sel.innerHTML = '';
     // Zeilen mit „(automatisch)“ rechnen sich selbst und werden nicht zum Eintragen angeboten
-    b.posten.forEach((p, i) => { if (!p.auto) sel.add(new Option(p.bezeichnung, i)); });
+    // Ausgeschaltete Posten (Konten-Auswahl) ebenfalls nicht
+    const sichtbar = [];
+    b.posten.forEach((p, i) => { if (!p.auto && !ausgeschaltet(p)) sichtbar.push(i); });
+    // Die meistgenutzten Posten (mind. 2 Einträge) stehen oben unter „Häufig genutzt“
+    const oft = b.posten.length > 4 ? sichtbar.filter(i => (nutzung[b.posten[i].name] || 0) >= 2)
+      .sort((x, y) => nutzung[b.posten[y].name] - nutzung[b.posten[x].name]).slice(0, 3) : [];
+    if (oft.length) {
+      const g1 = document.createElement('optgroup'); g1.label = 'Häufig genutzt';
+      oft.forEach(i => g1.appendChild(new Option(b.posten[i].bezeichnung, i)));
+      const g2 = document.createElement('optgroup'); g2.label = 'Alle Posten';
+      sichtbar.filter(i => oft.indexOf(i) < 0).forEach(i => g2.appendChild(new Option(b.posten[i].bezeichnung, i)));
+      sel.appendChild(g1); if (g2.children.length) sel.appendChild(g2);
+    } else sichtbar.forEach(i => sel.add(new Option(b.posten[i].bezeichnung, i)));
     const gemerkt = hole('posten:' + b.name);
-    if (gemerkt !== null && gemerkt < b.posten.length && !b.posten[gemerkt].auto) sel.value = gemerkt;
+    if (gemerkt !== null && sichtbar.indexOf(Number(gemerkt)) >= 0) sel.value = gemerkt;
     zeigeBisher();
     taktVorschlagen();
   }
 
   function fuelleBereiche() {
     const sel = $('bereich'); sel.innerHTML = '';
-    daten.bereiche.forEach((b, i) => { if (art(b) === modus) sel.add(new Option(b.name.replace(/^\d+\.\s*/, ''), i)); });
+    daten.bereiche.forEach((b, i) => {
+      if (art(b) === modus && b.posten.some(p => !p.auto && !ausgeschaltet(p))) sel.add(new Option(b.name.replace(/^\d+\.\s*/, ''), i));
+    });
     const gemerkt = hole('bereich:' + modus);
     if (gemerkt !== null && [].some.call(sel.options, o => o.value === gemerkt)) sel.value = gemerkt;
     $('bereichFeld').hidden = sel.options.length <= 1;
@@ -174,13 +196,20 @@
   }
 
   function setzeModus(m) {
-    const gibt = x => x === 'uebersicht' || x === 'finanzierung' || daten.bereiche.some(b => art(b) === x);
-    modus = (MODI[m] || m === 'uebersicht' || m === 'finanzierung') && gibt(m) ? m : 'variabel';
-    merke('modus', modus);
-    tabs.forEach(t => { t.classList.toggle('aktiv', t.dataset.modus === modus); t.hidden = !gibt(t.dataset.modus); });
-    const dash = modus === 'uebersicht', fin = modus === 'finanzierung';
-    $('formular').hidden = dash || fin; $('verlauf').hidden = dash || fin; $('uebersicht').hidden = !dash; $('finanzierung').hidden = !fin;
+    const SEITEN = ['uebersicht', 'finanzierung', 'weitere', 'konten'];
+    const gibt = x => SEITEN.indexOf(x) >= 0 || daten.bereiche.some(b => art(b) === x && b.posten.some(p => !p.auto && !ausgeschaltet(p)));
+    modus = (MODI[m] || SEITEN.indexOf(m) >= 0) && gibt(m) ? m : 'variabel';
+    merke('modus', modus === 'konten' ? 'weitere' : modus);
+    // Immobilien und Konten-Auswahl gehoeren zu „Weitere“
+    const tab = modus === 'finanzierung' || modus === 'konten' ? 'weitere' : modus;
+    tabs.forEach(t => { t.classList.toggle('aktiv', t.dataset.modus === tab); t.hidden = !gibt(t.dataset.modus); });
+    const dash = modus === 'uebersicht', fin = modus === 'finanzierung', mehr = modus === 'weitere', konten = modus === 'konten';
+    const seite = dash || fin || mehr || konten;
+    $('formular').hidden = seite; $('verlauf').hidden = seite; $('uebersicht').hidden = !dash; $('finanzierung').hidden = !fin;
+    $('weitere').hidden = !mehr; $('kontenAuswahl').hidden = !konten;
     if (dash) { $('titel').textContent = 'Übersicht'; zeigeDashboard(); return; }
+    if (mehr) { $('titel').textContent = 'Weitere'; zeigeWeitere(); return; }
+    if (konten) { $('titel').textContent = 'Konten-Auswahl'; zeigeKonten(); return; }
     if (fin) { $('titel').textContent = 'Immobilien'; window.Finanzierung.zeige($('finanzierung'), dateien[jahr].id); return; }
     $('titel').textContent = MODI[modus].titel;
     $('speichern').textContent = MODI[modus].knopf;
@@ -188,6 +217,70 @@
     fuelleBereiche();
   }
   tabs.forEach(t => { t.onclick = () => { setzeModus(t.dataset.modus); window.scrollTo(0, 0); }; });
+
+  // ---------- Weitere und Konten-Auswahl ----------
+
+  function zeigeWeitere() {
+    const n = auswahl.aus.length;
+    $('kontenZahl').textContent = n ? n + ' Posten ausgeschaltet' : 'Wähle, welche Posten du in der App siehst';
+  }
+  // Darstellung: hell, dunkel oder wie das Geraet (nur auf diesem Geraet gespeichert)
+  function setzeDarstellung(w) {
+    if (w === 'hell') document.documentElement.dataset.theme = 'light';
+    else if (w === 'dunkel') document.documentElement.dataset.theme = 'dark';
+    else { w = 'system'; delete document.documentElement.dataset.theme; }
+    merke('kosten.darstellung', w);
+    document.querySelectorAll('#darstellung button').forEach(b => b.classList.toggle('aktiv', b.dataset.wert === w));
+  }
+  document.querySelectorAll('#darstellung button').forEach(b => { b.onclick = () => setzeDarstellung(b.dataset.wert); });
+  setzeDarstellung(hole('kosten.darstellung') || 'system');
+  $('zuImmobilien').onclick = () => { setzeModus('finanzierung'); window.scrollTo(0, 0); };
+  $('zuKonten').onclick = () => { setzeModus('konten'); window.scrollTo(0, 0); };
+  $('kontenZurueck').onclick = () => { setzeModus('weitere'); window.scrollTo(0, 0); };
+
+  function zeigeKonten() {
+    meldung('', '', 'meldungKonten');
+    $('kontenTabelle').checked = auswahl.tabelle;
+    const box = $('kontenListe'); box.innerHTML = '';
+    daten.bereiche.forEach(b => {
+      const liste = b.posten.filter(p => !p.auto);
+      if (!liste.length) return;
+      const card = document.createElement('div'); card.className = 'card';
+      const kopf = document.createElement('div'); kopf.className = 'bereichKopf';
+      const h = document.createElement('h2'); h.textContent = b.name.replace(/^\d+\.\s*/, '');
+      const alle = document.createElement('button'); alle.className = 'link'; alle.type = 'button';
+      kopf.appendChild(h); kopf.appendChild(alle); card.appendChild(kopf);
+      const schalter = [];
+      liste.forEach(p => {
+        const l = document.createElement('label'); l.className = 'konto';
+        const t = document.createElement('span'); t.textContent = p.bezeichnung;
+        const z = document.createElement('span'); z.className = 'zaehler';
+        const n = nutzung[p.name] || 0; z.textContent = n ? n + '×' : '';
+        const c = document.createElement('input'); c.type = 'checkbox'; c.className = 'schalter'; c.checked = !ausgeschaltet(p);
+        c.dataset.name = p.name;
+        l.appendChild(t); l.appendChild(z); l.appendChild(c); card.appendChild(l); schalter.push(c);
+      });
+      const beschriften = () => { alle.textContent = schalter.every(c => c.checked) ? 'Alle aus' : 'Alle an'; };
+      alle.onclick = () => { const an = !schalter.every(c => c.checked); schalter.forEach(c => { c.checked = an; }); beschriften(); };
+      schalter.forEach(c => { c.onchange = beschriften; });
+      beschriften();
+      box.appendChild(card);
+    });
+  }
+
+  $('kontenSpeichern').onclick = async function () {
+    if (offline()) { meldung('Zum Speichern brauchst du Internet.', 'fehler', 'meldungKonten'); return; }
+    const aus = [].filter.call(document.querySelectorAll('#kontenListe .schalter'), c => !c.checked).map(c => c.dataset.name);
+    const tabelle = $('kontenTabelle').checked;
+    this.disabled = true;
+    meldung('Speichere …', '', 'meldungKonten');
+    try {
+      await G.kontenAuswahlSpeichern(dateien[jahr].id, aus, tabelle, auswahl.tabelle);
+      setzeAuswahl({ aus: aus, tabelle: tabelle });
+      meldung('Gespeichert. ' + (aus.length ? aus.length + ' Posten ausgeschaltet' + (tabelle ? ' und in der Tabelle ausgeblendet.' : '.') : 'Alle Posten sind eingeschaltet.'), 'ok', 'meldungKonten');
+    } catch (err) { fehler(err, 'meldungKonten'); }
+    this.disabled = false;
+  };
 
   // ---------- Uebersicht (Dashboard) ----------
 
@@ -250,6 +343,7 @@
   // ---------- Verlauf ----------
 
   function zeigeVerlauf(liste) {
+    if (liste.nutzung) setzeNutzung(liste.nutzung);
     letzterVerlauf = liste;
     merkeStand();
     const ul = $('liste'); ul.innerHTML = '';
@@ -389,7 +483,9 @@
       const id = dateien[jahr].id;
       const info = await G.blaetter(id);
       daten = await G.struktur(id, info);
-      const verlauf = await G.verlauf(id, info);
+      const [verlauf, a] = await Promise.all([G.verlauf(id, info), G.kontenAuswahl(id).catch(() => null)]);
+      if (a) setzeAuswahl(a);
+      setzeNutzung(verlauf.nutzung);
       zeigeJahr(verlauf);
       merke('jahr', jahr);
       pruefeVorlage();
@@ -399,6 +495,8 @@
   // Zeigt das Formular fuer "jahr" mit den Daten in "daten" (auch offline aus dem gespeicherten Stand).
   function zeigeJahr(verlauf) {
       const id = dateien[jahr].id;
+      auswahl = ladeLokal('kosten.auswahl:' + id, { aus: [], tabelle: false });
+      nutzung = ladeLokal('kosten.nutzung:' + id, {});
       zeige(['formular', 'verlauf', 'fuss']);
       fuelleJahre();
       $('tabelleLink').href = dateien[jahr].webViewLink || ('https://docs.google.com/spreadsheets/d/' + id + '/edit');

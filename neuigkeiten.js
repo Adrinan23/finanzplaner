@@ -2,6 +2,15 @@
 // Neue Eintraege oben anfuegen. Gibt es nichts Neues, erscheint keine Meldung.
 window.NEUIGKEITEN = [
   {
+    id: '2026-11-02d',
+    punkte: [
+      'Neu unten in der Leiste: „Weitere“. Dort findest du jetzt „Immobilien“ und die Einstellungen.',
+      'Konten-Auswahl: Schalte Posten aus, die du nicht brauchst. Sie verschwinden aus der Auswahl beim Eintragen, auf Wunsch auch in der Tabelle. Deine Beträge bleiben erhalten.',
+      'Häufig genutzte Posten stehen jetzt oben in der Auswahl.',
+      'Darstellung: Wähle Hell, Dunkel oder „System“ (wie dein Gerät eingestellt ist).'
+    ]
+  },
+  {
     id: '2026-11-02b',
     punkte: [
       'Neue Einnahme-Posten in der Vorlage: Nebenjob / Minijob, Selbstständigkeit / Freelance, Mieteinnahmen, Steuererstattung, Elterngeld / Mutterschaftsgeld, Krankengeld / Arbeitslosengeld, Geldgeschenke und Cashback / Prämien. Übernimm sie mit „Jetzt übernehmen“.',

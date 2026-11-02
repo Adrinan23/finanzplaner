@@ -354,11 +354,56 @@
     if (!info.blaetter.find(b => b.title === LOG_BLATT)) return [];
     const [z] = await werteHolen(id, [q(LOG_BLATT) + '!A2:I'], 'UNFORMATTED_VALUE');
     const start = Math.max(0, z.length - 30);
-    return z.slice(start).map((r, i) => ({
+    // Wie oft jeder Posten benutzt wurde (ein Eintrag mit Wiederholen zaehlt einmal, rueckgaengig gemachte nicht)
+    const nutzung = {}, gesehen = {};
+    z.forEach(r => {
+      if (!r[2] || r[8] === 'rueckgaengig') return;
+      const k = r[0] + '|' + r[2];
+      if (gesehen[k]) return;
+      gesehen[k] = true;
+      nutzung[r[2]] = (nutzung[r[2]] || 0) + 1;
+    });
+    const liste = z.slice(start).map((r, i) => ({
       logZeile: start + i + 2,
       zeit: typeof r[0] === 'number' ? ausSerial(r[0]).toISOString() : String(r[0] || ''),
       monat: r[1], posten: r[2], betrag: Number(r[3]), storniert: r[8] === 'rueckgaengig'
     })).filter(e => e.posten).reverse();
+    liste.nutzung = nutzung;
+    return liste;
+  }
+
+  // ---------- Konten-Auswahl ----------
+  // Welche Posten der Nutzer ausgeschaltet hat, steht in der Tabelle selbst (Developer-Metadaten),
+  // damit es auf allen Geraeten gilt und beim Kopieren fuer ein neues Jahr mitwandert.
+  const AUSWAHL_MERKMAL = 'finanzplanerKontenAuswahl';
+  async function kontenAuswahl(id) {
+    const d = await api(SHEETS + '/' + id + '?fields=developerMetadata(metadataId,metadataKey,metadataValue)');
+    const m = (d.developerMetadata || []).find(x => x.metadataKey === AUSWAHL_MERKMAL);
+    if (!m) return { aus: [], tabelle: false };
+    try { const v = JSON.parse(m.metadataValue); return { aus: v.aus || [], tabelle: !!v.tabelle }; }
+    catch (e) { return { aus: [], tabelle: false }; }
+  }
+  // aus: Liste von Posten-Namen ("Kategorie - Bezeichnung"); tabelle: Zeilen auch in der Tabelle ausblenden
+  async function kontenAuswahlSpeichern(id, aus, tabelle, warTabelle) {
+    const [s, d] = await Promise.all([struktur(id), api(SHEETS + '/' + id + '?fields=developerMetadata(metadataId,metadataKey)')]);
+    const anfragen = (d.developerMetadata || []).filter(x => x.metadataKey === AUSWAHL_MERKMAL).map(x => (
+      { deleteDeveloperMetadata: { dataFilter: { developerMetadataLookup: { metadataId: x.metadataId } } } }));
+    anfragen.push(
+      { createDeveloperMetadata: { developerMetadata: {
+        metadataKey: AUSWAHL_MERKMAL, metadataValue: JSON.stringify({ aus: aus, tabelle: !!tabelle }), location: { spreadsheet: true }, visibility: 'DOCUMENT'
+      } } });
+    // Zeilen ein- bzw. ausblenden (Summen rechnen trotzdem weiter). War es vorher an und jetzt aus, alles wieder einblenden.
+    if (tabelle || warTabelle) {
+      const weg = {}; aus.forEach(n => { weg[normName(n)] = true; });
+      s.bereiche.forEach(b => b.posten.forEach(p => {
+        if (p.auto) return;
+        anfragen.push({ updateDimensionProperties: {
+          range: { sheetId: s.blatt.sheetId, dimension: 'ROWS', startIndex: p.zeile - 1, endIndex: p.zeile },
+          properties: { hiddenByUser: !!(tabelle && weg[normName(p.name)]) }, fields: 'hiddenByUser'
+        } });
+      }));
+    }
+    await batch(id, anfragen);
   }
 
   function jetztText() {
@@ -876,6 +921,6 @@
   window.Google = {
     TEST, anmelden, abmelden, tokenAusAdresse, token, restMinuten, nutzer, NichtAngemeldet,
     meineDateien, kandidaten, verbinden, ersterFinanzplaner, jahrAnlegen,
-    SKRIPT_SCOPE, struktur, verlauf, blaetter, hinzufuegen, taktAusTurnus, turnusSkriptVersion, turnusSkriptEinrichten, turnusSkriptMerken, rueckgaengig, vorlageAbgleichen, namenAktualisieren, fehlendeAusVorlage, sparziele, finanzierungLaden, finanzierungSpeichern, altesBlattEntfernen, immobilienErsparnis, hinweiseSchreiben
+    SKRIPT_SCOPE, struktur, verlauf, blaetter, hinzufuegen, taktAusTurnus, turnusSkriptVersion, turnusSkriptEinrichten, turnusSkriptMerken, rueckgaengig, vorlageAbgleichen, namenAktualisieren, kontenAuswahl, kontenAuswahlSpeichern, normName, fehlendeAusVorlage, sparziele, finanzierungLaden, finanzierungSpeichern, altesBlattEntfernen, immobilienErsparnis, hinweiseSchreiben
   };
 })();

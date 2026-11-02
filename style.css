@@ -1,7 +1,9 @@
 :root { --bg:#f6f7f9; --card:#fff; --text:#1d2330; --muted:#6b7280; --accent:#1f6f50; --line:#e3e6ea; --err:#b42318; }
 @media (prefers-color-scheme: dark) {
-  :root { --bg:#14161a; --card:#1e2127; --text:#e8eaed; --muted:#9aa0a6; --accent:#4cc38a; --line:#2e323a; --err:#ff8a80; }
+  :root:not([data-theme="light"]) { --bg:#14161a; --card:#1e2127; --text:#e8eaed; --muted:#9aa0a6; --accent:#4cc38a; --line:#2e323a; --err:#ff8a80; color-scheme:dark; }
 }
+:root[data-theme="dark"] { --bg:#14161a; --card:#1e2127; --text:#e8eaed; --muted:#9aa0a6; --accent:#4cc38a; --line:#2e323a; --err:#ff8a80; color-scheme:dark; }
+:root[data-theme="light"] { color-scheme:light; }
 * { box-sizing: border-box; }
 html { -webkit-text-size-adjust: 100%; }
 body { margin:0; background:var(--bg); color:var(--text); font:16px/1.4 -apple-system, "Segoe UI", Roboto, sans-serif; }
@@ -59,8 +61,9 @@ nav#leiste button.aktiv svg { background:color-mix(in srgb, var(--accent) 15%, t
 /* ---------- Uebersicht / Dashboard ---------- */
 :root { --viz-fix:#2a78d6; --viz-var:#eb6834; --viz-spar:#1baf7a; --viz-frei:#d3d6db; --viz-grau:#b9bec6; }
 @media (prefers-color-scheme: dark) {
-  :root { --viz-fix:#3987e5; --viz-var:#d95926; --viz-spar:#199e70; --viz-frei:#3a3f47; --viz-grau:#5b616b; }
+  :root:not([data-theme="light"]) { --viz-fix:#3987e5; --viz-var:#d95926; --viz-spar:#199e70; --viz-frei:#3a3f47; --viz-grau:#5b616b; }
 }
+:root[data-theme="dark"] { --viz-fix:#3987e5; --viz-var:#d95926; --viz-spar:#199e70; --viz-frei:#3a3f47; --viz-grau:#5b616b; }
 nav#leiste button { font-size:11px; }
 .monatwahl select { margin-bottom:4px; }
 .kacheln { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:16px; }
@@ -139,3 +142,29 @@ input[type="month"]::-webkit-date-and-time-value { text-align:left; }
 .ampel.schlecht { color:var(--err); }
 #fSonderBox label { margin-top:14px; }
 #fAnnuHinweis { margin-bottom:6px; } #fRateInfo { font-weight:600; }
+
+/* ---------- Weitere / Konten-Auswahl ---------- */
+.card.menue { padding:4px 16px; }
+button.eintrag { width:100%; display:flex; align-items:center; justify-content:space-between; gap:12px; text-align:left; border:0; border-top:1px solid var(--line);
+  background:none; color:var(--text); font:inherit; padding:14px 0; cursor:pointer; }
+button.eintrag:first-child { border-top:0; }
+button.eintrag .sub { display:block; margin-top:2px; font-size:13px; }
+.pfeil { font-size:24px; color:var(--muted); line-height:1; }
+h2.abschnitt { font-size:13px; color:var(--muted); text-transform:uppercase; letter-spacing:.04em; margin:20px 4px 8px; }
+button.zurueck { padding:0 0 10px; font-size:15px; text-decoration:none; }
+#kontenAuswahl label.check { margin-top:14px; }
+.konto { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:10px 0; border-top:1px solid var(--line); cursor:pointer; margin:0; font-size:15px; color:var(--text); }
+.konto:first-of-type { border-top:0; }
+.konto span { flex:1; min-width:0; }
+.konto .zaehler { flex:none; font-size:12px; color:var(--muted); }
+.schalter { appearance:none; -webkit-appearance:none; flex:none; width:46px; height:28px; padding:0; border-radius:14px; border:0; background:var(--viz-frei); position:relative; cursor:pointer; transition:background .15s; }
+.schalter::after { content:""; position:absolute; top:3px; left:3px; width:22px; height:22px; border-radius:50%; background:#fff; box-shadow:0 1px 2px rgba(0,0,0,.3); transition:left .15s; }
+.schalter:checked { background:var(--accent); }
+.schalter:checked::after { left:21px; }
+.bereichKopf { display:flex; justify-content:space-between; align-items:baseline; gap:8px; }
+.bereichKopf button.link { padding:0; font-size:13px; white-space:nowrap; }
+
+.segment { display:flex; gap:4px; background:var(--bg); border:1px solid var(--line); border-radius:12px; padding:4px; margin:4px 0 12px; }
+.segment button { flex:1; border:0; background:none; color:var(--text); font:inherit; font-size:15px; padding:10px 4px; border-radius:9px; cursor:pointer; }
+.segment button.aktiv { background:var(--accent); color:#fff; font-weight:600; }
+.darstellung { border-top:1px solid var(--line); }
