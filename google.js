@@ -5,6 +5,8 @@
 (function () {
   const CFG = window.KOSTEN_CONFIG;
   const SCOPES = 'https://www.googleapis.com/auth/drive https://www.googleapis.com/auth/spreadsheets';
+  // Nur fuer die Turnus-Automatik, wird erst beim Einrichten zusaetzlich angefragt
+  const SKRIPT_SCOPE = 'https://www.googleapis.com/auth/script.projects';
   const LOG_BLATT = 'Eingaben';
   const DRIVE = 'https://www.googleapis.com/drive/v3';
   const SHEETS = 'https://sheets.googleapis.com/v4/spreadsheets';
@@ -24,12 +26,12 @@
 
   function redirectUri() { return location.origin + location.pathname.replace(/index\.html$/, ''); }
 
-  function anmelden(still) {
+  function anmelden(still, zusatz) {
     const p = new URLSearchParams({
       client_id: CFG.CLIENT_ID,
       redirect_uri: redirectUri(),
       response_type: 'token',
-      scope: SCOPES,
+      scope: zusatz ? SCOPES + ' ' + zusatz : SCOPES,
       include_granted_scopes: 'true',
       state: 'kosten'
     });
@@ -148,7 +150,7 @@
       else if (aktuell && b === 'Zwischensumme') aktuell.zwischensumme = r + 1;
       else if (aktuell && b && c) {
         aktuell.posten.push({
-          name: b + ' - ' + c, kategorie: b, bezeichnung: c, zeile: r + 1, auto: /\(automatisch\)$/.test(c),
+          name: b + ' - ' + c, kategorie: b, bezeichnung: c, turnus: t(r, 3), zeile: r + 1, auto: /\(automatisch\)$/.test(c),
           werte: monate.map(m => Number((roh[r] || [])[m.spalte - 1]) || 0)
         });
       }
@@ -182,6 +184,38 @@
     }
     return aus;
   }
+  // Turnus (Spalte D) <-> Abstand in Monaten; gleiche Regeln wie das Turnus-Skript der Tabelle
+  const AUTO_NOTIZ = 'Automatisch (Turnus)';
+  const TURNUS_TEXT = { 1: 'Monatlich', 2: 'alle 2 Monate', 3: 'Quartalsweise', 4: 'alle 4 Monate', 6: 'Halbjährlich' };
+  function taktAusTurnus(text) {
+    const t = String(text || '').toLowerCase();
+    if (/variabel/.test(t)) return 0;
+    if (/zweimonat|alle 2 monat/.test(t)) return 2;
+    if (/quartal|viertelj/.test(t)) return 3;
+    if (/alle 4 monat/.test(t)) return 4;
+    if (/halbj/.test(t)) return 6;
+    if (/^\s*monatlich/.test(t)) return 1;
+    return 0;
+  }
+  function updateText(sheetId, zeile, spalte, text) {
+    return {
+      updateCells: {
+        range: { sheetId: sheetId, startRowIndex: zeile - 1, endRowIndex: zeile, startColumnIndex: spalte - 1, endColumnIndex: spalte },
+        rows: [{ values: [{ userEnteredValue: { stringValue: text } }] }],
+        fields: 'userEnteredValue'
+      }
+    };
+  }
+  function notiz(sheetId, zeile, spalte, text) {
+    return {
+      updateCells: {
+        range: { sheetId: sheetId, startRowIndex: zeile - 1, endRowIndex: zeile, startColumnIndex: spalte - 1, endColumnIndex: spalte },
+        rows: [{ values: [{ note: text }] }],
+        fields: 'note'
+      }
+    };
+  }
+
   function updateZelle(sheetId, zeile, spalte, inhalt) {
     return {
       updateCells: {
@@ -332,7 +366,7 @@
     return d.getFullYear() + '-' + z(d.getMonth() + 1) + '-' + z(d.getDate()) + ' ' + z(d.getHours()) + ':' + z(d.getMinutes()) + ':' + z(d.getSeconds());
   }
 
-  // Haengt den Betrag an die Monatszellen von "monat" bis "bisMonat" an.
+  // Haengt den Betrag an die Monatszellen von "monat" bis "bisMonat" an, mit e.takt = 3 nur in jedem dritten Monat.
   // status.geschrieben wird gesetzt, sobald die Tabelle veraendert wird (fuer die Offline-Warteschlange).
   async function hinzufuegen(id, e, status) {
     const betrag = Math.round(Number(e.betrag) * 100) / 100;
@@ -340,20 +374,22 @@
     const info = await blaetter(id);
     const s = await struktur(id, info);
     const von = Number(e.monat), bis = Math.max(von, Math.min(12, Number(e.bisMonat) || von));
+    const takt = Math.max(1, Number(e.takt) || 1), liste = [];
+    for (let m = von; m <= bis; m += takt) liste.push(m);
     const alle = [].concat.apply([], s.bereiche.map(b => b.posten));
     const p = alle.find(x => x.zeile === Number(e.zeile) && x.name === e.posten) || alle.find(x => x.name === e.posten);
     if (!p) throw new Error('Posten nicht gefunden. Bitte App neu laden.');
 
     const refs = [];
-    for (let m = von; m <= bis; m++) refs.push(zelle(s.blatt.title, p.zeile, s.monate[m - 1].spalte));
+    liste.forEach(m => refs.push(zelle(s.blatt.title, p.zeile, s.monate[m - 1].spalte)));
     const formeln = await werteHolen(id, refs, 'FORMULA');
 
     // Formel bauen. Je nach Sprache der Tabelle wird "12.5" oder "12,5" als Zahl gelesen;
     // deshalb mit dem passenden Dezimalzeichen schreiben, pruefen und notfalls das andere versuchen.
     function bauePlan(sep) {
       const plan = [];
-      for (let m = von; m <= bis; m++) {
-        const roh = formeln[m - von].length ? formeln[m - von][0][0] : '';
+      liste.forEach((m, i) => {
+        const roh = formeln[i].length ? formeln[i][0][0] : '';
         const dazu = betrag < 0 ? zahl(betrag, sep) : '+' + zahl(betrag, sep);
         let vorher, nachher;
         if (roh === '' || roh === null || roh === undefined) { vorher = ''; nachher = betrag; }
@@ -361,7 +397,7 @@
         else if (String(roh).charAt(0) === '=') { vorher = roh; nachher = roh + dazu; }
         else throw new Error('Die Zelle im ' + s.monate[m - 1].name + ' enthält Text und wird nicht verändert.');
         plan.push({ m: m, spalte: s.monate[m - 1].spalte, vorher: vorher, nachher: nachher, erwartet: (p.werte[m - 1] || 0) + betrag });
-      }
+      });
       return plan;
     }
 
@@ -389,12 +425,20 @@
         '\n(Erwartet ' + plan[0].erwartet + ', Formel ' + plan[0].nachher + ', Tabellensprache ' + (info.locale || '?') + ')');
     }
 
+    // Zusammenspiel mit dem Turnus-Skript der Tabelle: beim Wiederholen den Turnus in Spalte D setzen und
+    // die Folgemonate, die vorher leer waren, als automatisch markieren (Notiz wie beim Skript).
+    // Alle anderen beschriebenen Zellen gelten als selbst eingetragen (Notiz weg).
+    const extra = plan.map((x, i) => notiz(s.blatt.sheetId, p.zeile, x.spalte, e.turnus && i > 0 && x.vorher === '' ? AUTO_NOTIZ : ''));
+    const neuerTurnus = e.turnus && (taktAusTurnus(p.turnus) !== takt || !p.turnus) ? (TURNUS_TEXT[takt] || 'Monatlich') : null;
+    if (neuerTurnus) extra.push(updateText(s.blatt.sheetId, p.zeile, s.monate[0].spalte - 1, neuerTurnus));
+    await batch(id, extra);
+
     await logBlatt(id, info);
     await api(SHEETS + '/' + id + '/values/' + encodeURIComponent(q(LOG_BLATT) + '!A:I') + ':append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS', {
       method: 'POST',
       body: { values: plan.map(x => [jetztText(), s.monate[x.m - 1].name, p.name, betrag, p.zeile, x.spalte, "'" + x.vorher, "'" + String(x.nachher), '']) }
     });
-    return { neueWerte: neueWerte, verlauf: await verlauf(id) };
+    return { neueWerte: neueWerte, turnus: neuerTurnus, verlauf: await verlauf(id) };
   }
 
   async function rueckgaengig(id, logZeile) {
@@ -407,7 +451,9 @@
     const aktuell = await formelHolen(id, zelle(s.blatt.title, zeile, spalte));
     const passt = nachher.charAt(0) === '=' ? String(aktuell) === nachher : Number(aktuell) === Number(nachher);
     if (!passt) throw new Error('Die Zelle wurde inzwischen weiter geändert. Bitte direkt in der Tabelle korrigieren.');
-    await batch(id, [updateZelle(s.blatt.sheetId, zeile, spalte, vorher === '' ? '' : (vorher.charAt(0) === '=' ? vorher : Number(vorher)))]);
+    const zurueck = [updateZelle(s.blatt.sheetId, zeile, spalte, vorher === '' ? '' : (vorher.charAt(0) === '=' ? vorher : Number(vorher)))];
+    if (vorher === '') zurueck.push(notiz(s.blatt.sheetId, zeile, spalte, ''));
+    await batch(id, zurueck);
     await api(SHEETS + '/' + id + '/values/' + encodeURIComponent(q(LOG_BLATT) + '!I' + logZeile) + '?valueInputOption=RAW', { method: 'PUT', body: { values: [['rueckgaengig']] } });
     return { verlauf: await verlauf(id), struktur: await struktur(id) };
   }
@@ -509,6 +555,62 @@
       }
     }
     return ergebnis;
+  }
+
+  // ---------- Turnus-Automatik (Apps Script in der Tabelle) ----------
+  // Das Skript (turnus-skript.gs) verteilt Betraege bei Eingaben direkt in der Tabelle nach dem Turnus.
+  // Die App legt es ueber die Apps-Script-API als an die Tabelle gebundenes Projekt an. Ein Merkmal
+  // (Developer Metadata) in der Tabelle zeigt, dass es eingerichtet ist; es wandert bei Kopien
+  // (neues Jahr) zusammen mit dem Skript mit.
+  const SKRIPT_MERKMAL = 'finanzplanerTurnusSkript';
+  const SKRIPT_VERSION = '3';
+  const SCRIPT_API = 'https://script.googleapis.com/v1/projects';
+  const TURNUS_LISTE = ['Variabel', 'Monatlich', 'alle 2 Monate', 'Quartalsweise', 'alle 4 Monate', 'Halbjährlich', 'Jährlich'];
+
+  async function turnusSkriptVersion(id) {
+    const d = await api(SHEETS + '/' + id + '?fields=developerMetadata(metadataKey,metadataValue)');
+    const m = (d.developerMetadata || []).find(x => x.metadataKey === SKRIPT_MERKMAL);
+    return m ? m.metadataValue : null;
+  }
+
+  // Merkmal setzen, ohne ein Skript anzulegen (wenn es schon von Hand eingefuegt wurde)
+  async function turnusSkriptMerken(id) {
+    await batch(id, [{ createDeveloperMetadata: { developerMetadata: {
+      metadataKey: SKRIPT_MERKMAL, metadataValue: SKRIPT_VERSION, location: { spreadsheet: true }, visibility: 'DOCUMENT'
+    } } }]);
+  }
+
+  async function turnusSkriptEinrichten(id) {
+    const code = await (await fetch('turnus-skript.gs', { cache: 'no-cache' })).text();
+    if (code.indexOf('function onEdit') < 0) throw new Error('Skript-Datei nicht gefunden.');
+    const projekt = await api(SCRIPT_API, { method: 'POST', body: { title: 'Turnus-Automatik', parentId: id } });
+    await api(SCRIPT_API + '/' + projekt.scriptId + '/content', {
+      method: 'PUT',
+      body: { files: [
+        { name: 'appsscript', type: 'JSON', source: JSON.stringify({ timeZone: 'Europe/Berlin', runtimeVersion: 'V8', exceptionLogging: 'STACKDRIVER' }) },
+        { name: 'Turnus', type: 'SERVER_JS', source: code }
+      ] }
+    });
+    // Auswahlliste in Spalte D fuer alle Posten; variable Kosten auf „Variabel“ stellen,
+    // damit „Monatlich“ dort nicht jeden Einkauf in alle Monate kopiert
+    const s = await struktur(id);
+    const spalte = s.monate[0].spalte - 1;
+    const regel = { condition: { type: 'ONE_OF_LIST', values: TURNUS_LISTE.map(v => ({ userEnteredValue: v })) }, strict: false, showCustomUi: true };
+    const anfragen = [];
+    s.bereiche.forEach(b => b.posten.forEach(p => {
+      if (p.auto) return;
+      const bereich = { sheetId: s.blatt.sheetId, startRowIndex: p.zeile - 1, endRowIndex: p.zeile, startColumnIndex: spalte - 1, endColumnIndex: spalte };
+      anfragen.push({ setDataValidation: { range: bereich, rule: regel } });
+      const schwankend = /VARIABLE/i.test(b.name) ||
+        (/EINNAHMEN/i.test(b.name) && /dividend|zinsen|verkäuf|rückerstatt|bonus|sonderzahl|freelance|selbstständ|geldgeschenk|cashback|prämie/i.test(p.bezeichnung));
+      if (schwankend && /^\s*monatlich\s*$|^\s*$/i.test(p.turnus || '')) {
+        anfragen.push({ updateCells: { range: bereich, rows: [{ values: [{ userEnteredValue: { stringValue: 'Variabel' } }] }], fields: 'userEnteredValue' } });
+      }
+    }));
+    anfragen.push({ createDeveloperMetadata: { developerMetadata: {
+      metadataKey: SKRIPT_MERKMAL, metadataValue: SKRIPT_VERSION, location: { spreadsheet: true }, visibility: 'DOCUMENT'
+    } } });
+    await batch(id, anfragen);
   }
 
   // ---------- Finanzierung (Immobilienkredite) ----------
@@ -731,6 +833,6 @@
   window.Google = {
     TEST, anmelden, abmelden, tokenAusAdresse, token, restMinuten, nutzer, NichtAngemeldet,
     meineDateien, kandidaten, verbinden, ersterFinanzplaner, jahrAnlegen,
-    struktur, verlauf, blaetter, hinzufuegen, rueckgaengig, vorlageAbgleichen, fehlendeAusVorlage, sparziele, finanzierungLaden, finanzierungSpeichern, altesBlattEntfernen, immobilienErsparnis, hinweiseSchreiben
+    SKRIPT_SCOPE, struktur, verlauf, blaetter, hinzufuegen, taktAusTurnus, turnusSkriptVersion, turnusSkriptEinrichten, turnusSkriptMerken, rueckgaengig, vorlageAbgleichen, fehlendeAusVorlage, sparziele, finanzierungLaden, finanzierungSpeichern, altesBlattEntfernen, immobilienErsparnis, hinweiseSchreiben
   };
 })();

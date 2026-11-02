@@ -14,7 +14,7 @@
   function meldung(text, klasse, ziel) { const m = $(ziel || 'meldung'); m.textContent = text || ''; m.className = 'meldung ' + (klasse || ''); }
   function zeige(bereiche) {
     ['anmeldung', 'einrichten', 'formular', 'verlauf', 'fuss'].forEach(id => { $(id).hidden = bereiche.indexOf(id) < 0; });
-    if (bereiche.indexOf('formular') < 0) { $('hinweisVorlage').hidden = true; $('uebersicht').hidden = true; $('finanzierung').hidden = true; }
+    if (bereiche.indexOf('formular') < 0) { $('hinweisVorlage').hidden = true; $('hinweisSkript').hidden = true; $('uebersicht').hidden = true; $('finanzierung').hidden = true; }
     const app = bereiche.indexOf('formular') >= 0;
     $('leiste').hidden = !app; $('jahr').hidden = !app;
     document.body.classList.toggle('mit-leiste', app);
@@ -106,7 +106,7 @@
     const pi = $('posten').value, bi = $('bereich').value;
     daten = struktur;
     if (modus === 'uebersicht') { zeigeDashboard(); zeigeVerlauf(verlauf); return; }
-    fuelleBereiche(); $('bereich').value = bi; fuellePosten(); $('posten').value = pi; zeigeBisher();
+    fuelleBereiche(); $('bereich').value = bi; fuellePosten(); $('posten').value = pi; zeigeBisher(); taktVorschlagen();
     zeigeVerlauf(verlauf);
   }
 
@@ -157,10 +157,11 @@
     const b = bereich(), sel = $('posten');
     sel.innerHTML = '';
     // Zeilen mit „(automatisch)“ rechnen sich selbst und werden nicht zum Eintragen angeboten
-    b.posten.forEach((p, i) => { if (!p.auto) sel.add(new Option(p.bezeichnung + ' (' + p.kategorie + ')', i)); });
+    b.posten.forEach((p, i) => { if (!p.auto) sel.add(new Option(p.bezeichnung, i)); });
     const gemerkt = hole('posten:' + b.name);
     if (gemerkt !== null && gemerkt < b.posten.length && !b.posten[gemerkt].auto) sel.value = gemerkt;
     zeigeBisher();
+    taktVorschlagen();
   }
 
   function fuelleBereiche() {
@@ -210,7 +211,29 @@
   $('dashMonat').onchange = zeigeDashboard;
 
   $('bereich').onchange = function () { merke('bereich:' + modus, this.value); fuellePosten(); };
-  $('posten').onchange = function () { merke('posten:' + bereich().name, this.value); zeigeBisher(); };
+  $('posten').onchange = function () { merke('posten:' + bereich().name, this.value); zeigeBisher(); taktVorschlagen(); };
+
+  // Abstand in Monaten aus dem Turnus der Zeile, z. B. „Quartalsweise“ (GEZ) = 3, „Halbjährlich“ = 6; sonst 1
+  function taktAusTurnus(p) { return G.taktAusTurnus(p ? p.turnus : '') || 1; }
+  // Bei solchen Posten Wiederholen im passenden Abstand bis Dezember vorschlagen
+  function taktVorschlagen() {
+    const takt = taktAusTurnus(posten());
+    $('takt').value = String(takt);
+    if (takt > 1 && Number($('monat').value) + takt <= 12) { $('wiederholen').checked = true; $('bisMonat').value = '12'; }
+    else $('wiederholen').checked = false;
+    fuelleBisMonat();
+  }
+  function wiederholenZuruecksetzen() {
+    $('betrag').value = ''; $('wiederholen').checked = false; $('bisFeld').hidden = true;
+    taktVorschlagen();
+  }
+  // Monate, in die eingetragen wird: von m bis bis, im Abstand takt
+  function zielMonate(m, bis, takt) { const l = []; for (let i = m; i <= bis; i += takt) l.push(i); return l; }
+  function zeitraumText(m, bis, takt) {
+    if (bis <= m) return '';
+    if (takt > 1) return zielMonate(m, bis, takt).map(i => daten.monate[i - 1].name).join(', ');
+    return daten.monate[m - 1].name + ' bis ' + daten.monate[bis - 1].name;
+  }
 
   function fuelleBisMonat() {
     const von = Number($('monat').value), sel = $('bisMonat'), alt = Number(sel.value) || 12;
@@ -222,7 +245,7 @@
     $('bisFeld').hidden = !$('wiederholen').checked;
   }
   $('wiederholen').onchange = function () { $('bisFeld').hidden = !this.checked; };
-  $('monat').onchange = () => { zeigeBisher(); fuelleBisMonat(); };
+  $('monat').onchange = () => { zeigeBisher(); taktVorschlagen(); };
 
   // ---------- Verlauf ----------
 
@@ -240,8 +263,8 @@
       li.className = 'wartend' + (e.fehler ? ' problem' : '');
       li.innerHTML = '<div class="info"><div class="posten"></div><div class="sub"></div></div><div class="betrag"></div>';
       li.querySelector('.posten').textContent = e.posten;
-      const bis = e.bisMonat > e.monat ? ' bis ' + daten.monate[e.bisMonat - 1].name : '';
-      li.querySelector('.sub').textContent = daten.monate[e.monat - 1].name + bis + ' · ' + (e.fehler ? 'Nicht eingetragen: ' + e.fehler : 'wartet auf Internet');
+      const zr = zeitraumText(e.monat, e.bisMonat, Number(e.takt) || 1) || daten.monate[e.monat - 1].name;
+      li.querySelector('.sub').textContent = zr + ' · ' + (e.fehler ? 'Nicht eingetragen: ' + e.fehler : 'wartet auf Internet');
       li.querySelector('.betrag').textContent = (einnahme[e.posten] ? '+ ' : '− ') + euro(e.betrag);
       const b = document.createElement('button'); b.className = 'undo'; b.textContent = 'Löschen';
       b.onclick = () => {
@@ -291,17 +314,19 @@
     const p = posten(), m = Number($('monat').value);
     if (!p) return;
     const bis = $('wiederholen').checked ? Number($('bisMonat').value) : m;
+    const takt = $('wiederholen').checked ? Number($('takt').value) || 1 : 1;
     if (bis > m) {
       const belegt = [];
-      for (let i = m; i <= bis; i++) if (p.werte[i - 1]) belegt.push(daten.monate[i - 1].name);
-      let text = euro(betrag) + ' bei „' + p.name + '“ in jedem Monat von ' + daten.monate[m - 1].name + ' bis ' + daten.monate[bis - 1].name + ' eintragen?';
+      zielMonate(m, bis, takt).forEach(i => { if (p.werte[i - 1]) belegt.push(daten.monate[i - 1].name); });
+      let text = euro(betrag) + ' bei „' + p.name + '“ ' + (takt > 1 ? 'in ' + zeitraumText(m, bis, takt) : 'in jedem Monat von ' + daten.monate[m - 1].name + ' bis ' + daten.monate[bis - 1].name) + ' eintragen?';
       if (belegt.length) text += '\n\nAchtung: In ' + belegt.join(', ') + ' ist schon etwas eingetragen. Der Betrag wird dort dazugerechnet.';
       if (!confirm(text)) return;
     }
-    const eintrag = { monat: m, bisMonat: bis, zeile: p.zeile, posten: p.name, betrag: betrag };
+    // Beim Wiederholen den Turnus in Spalte D mitschreiben (wie bei der Auswahl direkt in der Tabelle)
+    const eintrag = { monat: m, bisMonat: bis, takt: takt, turnus: bis > m, zeile: p.zeile, posten: p.name, betrag: betrag };
     const vormerken = () => {
       inWarteschlange(eintrag);
-      $('betrag').value = ''; $('wiederholen').checked = false; $('bisFeld').hidden = true;
+      wiederholenZuruecksetzen();
       meldung('Offline gespeichert: ' + euro(betrag) + ' · ' + p.name + '. Wird eingetragen, sobald du wieder Internet hast.', 'ok');
       zeigeVerlauf(letzterVerlauf);
       $('speichern').disabled = false;
@@ -312,9 +337,10 @@
     try {
       const r = await G.hinzufuegen(dateien[jahr].id, eintrag, status);
       Object.keys(r.neueWerte).forEach(k => { p.werte[k - 1] = r.neueWerte[k]; });
-      $('betrag').value = ''; $('wiederholen').checked = false; $('bisFeld').hidden = true;
+      if (r.turnus) p.turnus = r.turnus;
+      wiederholenZuruecksetzen();
       zeigeBisher();
-      const zeitraum = bis > m ? ' · ' + daten.monate[m - 1].name + ' bis ' + daten.monate[bis - 1].name : '';
+      const zeitraum = bis > m ? ' · ' + zeitraumText(m, bis, takt) : '';
       meldung('Gespeichert: ' + euro(betrag) + ' · ' + p.name + zeitraum, 'ok');
       zeigeVerlauf(r.verlauf);
     } catch (err) {
@@ -469,6 +495,7 @@
       $('hinweisVorlage').dataset.fehlend = fehlend.join('|');
       $('hinweisVorlage').hidden = false;
     } catch (err) { console.warn('Vorlage nicht geprüft', err); }
+    pruefeSkript();
     // Hinweise zum Bearbeiten einmal je Tabelle hineinschreiben
     const hk = 'kosten.hinweise:' + dateien[jahr].id;
     if (hole(hk) !== '1') G.hinweiseSchreiben(dateien[jahr].id).then(() => merke(hk, '1')).catch(err => console.warn('Hinweise nicht geschrieben', err));
@@ -478,6 +505,59 @@
     $('hinweisVorlage').hidden = true;
     try { sessionStorage.setItem('kosten.hinweisWeg', $('hinweisVorlage').dataset.fehlend || ''); } catch (e) { }
   };
+
+  // Turnus-Automatik: anbieten, solange sie in der Tabelle des gewaehlten Jahres fehlt
+  async function pruefeSkript() {
+    $('hinweisSkript').hidden = true;
+    let weg = null;
+    try { weg = sessionStorage.getItem('kosten.skriptWeg'); } catch (e) { }
+    if (weg === dateien[jahr].id) return;
+    try {
+      if (await G.turnusSkriptVersion(dateien[jahr].id)) return;
+      meldung('', '', 'meldungSkript');
+      $('hinweisSkript').hidden = false;
+    } catch (err) { console.warn('Turnus-Automatik nicht geprüft', err); }
+  }
+  $('skriptSpaeter').onclick = () => {
+    $('hinweisSkript').hidden = true;
+    try { sessionStorage.setItem('kosten.skriptWeg', dateien[jahr].id); } catch (e) { }
+  };
+  $('skriptSchon').onclick = async () => {
+    try { await G.turnusSkriptMerken(dateien[jahr].id); $('hinweisSkript').hidden = true; meldung('Alles klar, die Turnus-Automatik ist vermerkt.', 'ok'); }
+    catch (err) { fehler(err, 'meldungSkript'); }
+  };
+  // Vor der ersten Einrichtung Schritt fuer Schritt erklaeren, was passiert
+  function zeigeSkriptAnleitung(weiter) {
+    $('skriptAnleitung').hidden = false;
+    $('skriptLos').onclick = () => { $('skriptAnleitung').hidden = true; merke('kosten.skriptErklaert', '1'); if (weiter) weiter(); };
+    $('skriptAbbrechen').onclick = () => { $('skriptAnleitung').hidden = true; };
+  }
+  $('skriptWie').onclick = () => zeigeSkriptAnleitung(null);
+  $('skriptJetzt').onclick = function () {
+    if (hole('kosten.skriptErklaert') !== '1') zeigeSkriptAnleitung(() => skriptEinrichten.call(this));
+    else skriptEinrichten.call(this);
+  };
+  async function skriptEinrichten() {
+    this.disabled = true;
+    meldung('Richte die Turnus-Automatik ein …', '', 'meldungSkript');
+    try {
+      await G.turnusSkriptEinrichten(dateien[jahr].id);
+      $('hinweisSkript').hidden = true;
+      daten = await G.struktur(dateien[jahr].id);
+      fuellePosten();
+      meldung('Turnus-Automatik ist eingerichtet. Sie gilt auch für alle neuen Jahre, die du aus dieser Tabelle anlegst.', 'ok');
+    } catch (err) {
+      const t = String(err && err.message || err);
+      if (/insufficient authentication scopes|insufficient.*scope|ACCESS_TOKEN_SCOPE_INSUFFICIENT/i.test(t)) {
+        meldung('Dafür braucht die App einmal deine Zustimmung. Du wirst gleich zu Google weitergeleitet, danach bitte noch einmal auf „Jetzt einrichten“ tippen.', '', 'meldungSkript');
+        setTimeout(() => G.anmelden(false, G.SKRIPT_SCOPE), 2500);
+      } else if (/has not enabled the Apps Script API|usersettings/i.test(t)) {
+        $('meldungSkript').innerHTML = 'Einmalig nötig: Öffne <a href="https://script.google.com/home/usersettings" target="_blank" rel="noopener">script.google.com/home/usersettings</a>, schalte „Google Apps Script API“ auf <b>An</b> und tippe dann noch einmal auf „Jetzt einrichten“.';
+        $('meldungSkript').className = 'meldung fehler';
+      } else fehler(err, 'meldungSkript');
+    }
+    this.disabled = false;
+  }
 
   $('vorlageAbgleich').onclick = () => abgleichen(false);
 

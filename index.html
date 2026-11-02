@@ -52,6 +52,16 @@
     <button class="zweit" id="hinweisSpaeter">Später</button>
   </div>
 
+  <div class="card hinweis" id="hinweisSkript" hidden>
+    <h2>Neu: Turnus-Automatik für deine Tabelle</h2>
+    <div class="sub">Wenn du direkt in der Tabelle einen Betrag einträgst, verteilt er sich dann automatisch nach dem Turnus in Spalte D (z. B. „Quartalsweise“ für die GEZ). Variable Kosten werden dabei auf „Variabel“ gestellt und nie verteilt. Deine Beträge bleiben erhalten.</div>
+    <div class="meldung" id="meldungSkript"></div>
+    <button class="haupt" id="skriptJetzt">Jetzt einrichten</button>
+    <button class="zweit" id="skriptWie">So funktioniert die Einrichtung</button>
+    <button class="zweit" id="skriptSchon">Habe ich schon von Hand eingefügt</button>
+    <button class="zweit" id="skriptSpaeter">Später</button>
+  </div>
+
   <!-- Erfassen -->
   <div class="card" id="formular" hidden>
     <label for="monat">Monat</label>
@@ -66,8 +76,8 @@
     <label for="betrag">Betrag (€)</label>
     <input id="betrag" inputmode="decimal" placeholder="0,00" autocomplete="off">
     <div class="wiederholen">
-      <label class="check"><input type="checkbox" id="wiederholen"> Monatlich wiederholen</label>
-      <span id="bisFeld" hidden>bis <select id="bisMonat"></select></span>
+      <label class="check"><input type="checkbox" id="wiederholen"> Wiederholen</label>
+      <span id="bisFeld" hidden><select id="takt"><option value="1">jeden Monat</option><option value="2">alle 2 Monate</option><option value="3">alle 3 Monate</option><option value="4">alle 4 Monate</option><option value="6">alle 6 Monate</option></select> bis <select id="bisMonat"></select></span>
     </div>
     <button class="haupt" id="speichern" disabled>Hinzufügen</button>
     <div class="meldung" id="meldung"></div>
@@ -95,7 +105,7 @@
     <a id="tabelleLink" target="_blank" rel="noopener">Meine Tabelle öffnen</a>
     <button class="link" id="vorlageAbgleich">Neue Zeilen aus Vorlage übernehmen</button>
     <button class="link" id="abmelden">Abmelden</button>
-    <span class="sub">Version 2026-10-16c</span>
+    <span class="sub">Version 2026-11-02</span>
   </div>
 </main>
 
@@ -105,6 +115,23 @@
     <h2 id="neuigkeitenTitel">Neu in der App</h2>
     <ul id="neuigkeitenListe"></ul>
     <button class="haupt" id="neuigkeitenOk">Verstanden</button>
+  </div>
+</div>
+
+<div id="skriptAnleitung" class="overlay" hidden>
+  <div class="card dialog anleitung" role="dialog" aria-labelledby="skriptAnleitungTitel">
+    <h2 id="skriptAnleitungTitel">Turnus-Automatik einrichten</h2>
+    <p class="sub">Keine Sorge: Deine Beträge und Einträge bleiben genau so, wie sie sind. Die Einrichtung dauert etwa eine Minute.</p>
+    <ol>
+      <li><b>Was passiert?</b> Die App legt in <b>deiner eigenen</b> Tabelle einen kleinen Helfer an (ein „Apps Script“). Er sorgt dafür, dass sich ein Betrag, den du direkt in der Tabelle einträgst, nach dem Turnus in Spalte D auf die Folgemonate verteilt, z. B. die GEZ alle 3 Monate. Außerdem bekommt Spalte D eine Auswahlliste, und variable Kosten (Einkäufe, Restaurant …) werden auf „Variabel“ gestellt, damit sie nie verteilt werden.</li>
+      <li><b>Google fragt nach deiner Zustimmung.</b> Du wirst kurz zu Google weitergeleitet. Erscheint „Google hat diese App nicht überprüft“, tippe auf <b>Erweitert</b> und dann auf <b>Weiter zu Finanzplaner-App</b>, genau wie bei deiner ersten Anmeldung. Diese Meldung kommt, weil die App privat ist und nicht im Google-Verzeichnis steht.</li>
+      <li><b>„Apps Script-Projekte erstellen und ändern“ erlauben.</b> Das braucht die App nur, um den Helfer in deine Tabelle zu legen. Sie tut das ausschließlich, wenn du auf „Jetzt einrichten“ tippst, und nur in deiner Finanzplaner-Tabelle. Andere Dateien werden nicht angefasst, und niemand außer dir sieht deine Daten.</li>
+      <li><b>Zurück in der App noch einmal auf „Jetzt einrichten“ tippen.</b> Falls dann ein Hinweis zur „Google Apps Script API“ erscheint: Link öffnen, den Schalter auf <b>An</b> stellen, zurück und noch einmal tippen. Das ist eine einmalige Google-Einstellung.</li>
+      <li><b>Fertig.</b> Die App zeigt „Turnus-Automatik ist eingerichtet“. Neue Jahre, die du in der App anlegst, übernehmen sie automatisch.</li>
+    </ol>
+    <p class="sub">Gefällt es dir nicht? Stell in Spalte D einfach „Variabel“ ein, dann verteilt sich in dieser Zeile nichts mehr. Über die App einzutragen funktioniert weiterhin wie gewohnt.</p>
+    <button class="haupt" id="skriptLos">Verstanden, los geht's</button>
+    <button class="zweit" id="skriptAbbrechen">Abbrechen</button>
   </div>
 </div>
 
