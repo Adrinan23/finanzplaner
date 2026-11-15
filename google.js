@@ -343,8 +343,8 @@
     if (log) return log;
     const r = await batch(id, [{ addSheet: { properties: { title: LOG_BLATT, gridProperties: { frozenRowCount: 1 } } } }]);
     log = r.replies[0].addSheet.properties;
-    await api(SHEETS + '/' + id + '/values/' + encodeURIComponent(q(LOG_BLATT) + '!A1:I1') + '?valueInputOption=RAW', {
-      method: 'PUT', body: { values: [['Zeitpunkt', 'Monat', 'Posten', 'Betrag', 'Zeile', 'Spalte', 'Formel vorher', 'Formel nachher', 'Status']] }
+    await api(SHEETS + '/' + id + '/values/' + encodeURIComponent(q(LOG_BLATT) + '!A1:J1') + '?valueInputOption=RAW', {
+      method: 'PUT', body: { values: [['Zeitpunkt', 'Monat', 'Posten', 'Betrag', 'Zeile', 'Spalte', 'Formel vorher', 'Formel nachher', 'Status', 'Fremdwährung']] }
     });
     return log;
   }
@@ -413,6 +413,45 @@
 
   // Haengt den Betrag an die Monatszellen von "monat" bis "bisMonat" an, mit e.takt = 3 nur in jedem dritten Monat.
   // status.geschrieben wird gesetzt, sobald die Tabelle veraendert wird (fuer die Offline-Warteschlange).
+  // ---------- Fremdwaehrung ----------
+  // Tageskurs (Fremdwaehrung -> Euro). Quellen ohne Schluessel: Frankfurter (EZB-Referenzkurse), sonst open.er-api.com.
+  // Der letzte Kurs je Waehrung wird gemerkt (6 Stunden frisch, offline auch aelter).
+  async function wechselkurs(code) {
+    const k = 'kosten.kurs.' + code;
+    let alt = null;
+    try { alt = JSON.parse(lies(k) || 'null'); } catch (e) { }
+    if (alt && Date.now() - alt.geholt < 6 * 3600e3) return alt;
+    const quellen = [
+      async () => { const r = await fetch('https://api.frankfurter.dev/v1/latest?base=' + code + '&symbols=EUR'); if (!r.ok) throw new Error(r.status); const d = await r.json(); return { kurs: d.rates.EUR, datum: d.date }; },
+      async () => { const r = await fetch('https://api.frankfurter.app/latest?from=' + code + '&to=EUR'); if (!r.ok) throw new Error(r.status); const d = await r.json(); return { kurs: d.rates.EUR, datum: d.date }; },
+      async () => { const r = await fetch('https://open.er-api.com/v6/latest/' + code); if (!r.ok) throw new Error(r.status); const d = await r.json(); if (d.result !== 'success') throw new Error(d.result); return { kurs: d.rates.EUR, datum: new Date(d.time_last_update_unix * 1000).toISOString().slice(0, 10) }; }
+    ];
+    for (const q of quellen) {
+      try {
+        const n = await q();
+        if (!(n.kurs > 0)) continue;
+        n.geholt = Date.now(); n.code = code;
+        schreib(k, JSON.stringify(n));
+        return n;
+      } catch (e) { console.warn('Kurs nicht geladen', e); }
+    }
+    if (alt) { alt.alt = true; return alt; }
+    throw new Error('Der Wechselkurs konnte nicht geladen werden. Bitte später noch einmal versuchen oder den Betrag in Euro eintragen.');
+  }
+  function waehrungsZeile(w) {
+    const z = (n, st) => Number(n).toLocaleString('de-DE', { minimumFractionDigits: st, maximumFractionDigits: st });
+    const d = String(w.datum || '').split('-');
+    return z(w.betrag, 2) + ' ' + w.code + ' = ' + z(w.euro, 2) + ' € (Kurs ' + z(w.kurs, 4) + (d.length === 3 ? ', ' + d[2] + '.' + d[1] + '.' + d[0] : '') + ')';
+  }
+  // Notizen einer Zeile lesen (Spalte -> Notiz)
+  async function zeilenNotizen(id, titel, zeile) {
+    const d = await api(SHEETS + '/' + id + '?ranges=' + encodeURIComponent(q(titel) + '!A' + zeile + ':Z' + zeile) + '&fields=' + encodeURIComponent('sheets.data.rowData.values.note'));
+    const werte = (((((d.sheets || [])[0] || {}).data || [])[0] || {}).rowData || [])[0];
+    const n = {};
+    ((werte && werte.values) || []).forEach((v, i) => { if (v && v.note) n[i + 1] = v.note; });
+    return n;
+  }
+
   async function hinzufuegen(id, e, status) {
     const betrag = Math.round(Number(e.betrag) * 100) / 100;
     if (!betrag || !isFinite(betrag)) throw new Error('Ungültiger Betrag.');
@@ -473,15 +512,23 @@
     // Zusammenspiel mit dem Turnus-Skript der Tabelle: beim Wiederholen den Turnus in Spalte D setzen und
     // die Folgemonate, die vorher leer waren, als automatisch markieren (Notiz wie beim Skript).
     // Alle anderen beschriebenen Zellen gelten als selbst eingetragen (Notiz weg).
-    const extra = plan.map((x, i) => notiz(s.blatt.sheetId, p.zeile, x.spalte, e.turnus && i > 0 && x.vorher === '' ? AUTO_NOTIZ : ''));
+    // Eigene Notizen (z. B. Fremdwaehrung) bleiben erhalten; bei Fremdwaehrung kommt eine Zeile dazu.
+    const wz = e.waehrung ? waehrungsZeile(e.waehrung) : '';
+    let alteNotizen = {};
+    try { alteNotizen = await zeilenNotizen(id, s.blatt.title, p.zeile); } catch (err) { console.warn('Notizen nicht gelesen', err); }
+    const extra = plan.map((x, i) => {
+      if (e.turnus && i > 0 && x.vorher === '') return notiz(s.blatt.sheetId, p.zeile, x.spalte, AUTO_NOTIZ);
+      const alt = alteNotizen[x.spalte] && alteNotizen[x.spalte] !== AUTO_NOTIZ ? alteNotizen[x.spalte] : '';
+      return notiz(s.blatt.sheetId, p.zeile, x.spalte, wz ? (alt ? alt + '\n' : '') + wz : alt);
+    });
     const neuerTurnus = e.turnus && (taktAusTurnus(p.turnus) !== takt || !p.turnus) ? (TURNUS_TEXT[takt] || 'Monatlich') : null;
     if (neuerTurnus) extra.push(updateText(s.blatt.sheetId, p.zeile, s.monate[0].spalte - 1, neuerTurnus));
     await batch(id, extra);
 
     await logBlatt(id, info);
-    await api(SHEETS + '/' + id + '/values/' + encodeURIComponent(q(LOG_BLATT) + '!A:I') + ':append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS', {
+    await api(SHEETS + '/' + id + '/values/' + encodeURIComponent(q(LOG_BLATT) + '!A:J') + ':append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS', {
       method: 'POST',
-      body: { values: plan.map(x => [jetztText(), s.monate[x.m - 1].name, p.name, betrag, p.zeile, x.spalte, "'" + x.vorher, "'" + String(x.nachher), '']) }
+      body: { values: plan.map(x => [jetztText(), s.monate[x.m - 1].name, p.name, betrag, p.zeile, x.spalte, "'" + x.vorher, "'" + String(x.nachher), '', wz]) }
     });
     return { neueWerte: neueWerte, turnus: neuerTurnus, verlauf: await verlauf(id) };
   }
@@ -489,7 +536,7 @@
   async function rueckgaengig(id, logZeile) {
     const info = await blaetter(id);
     const s = await struktur(id, info);
-    const [z] = await werteHolen(id, [q(LOG_BLATT) + '!A' + logZeile + ':I' + logZeile], 'UNFORMATTED_VALUE');
+    const [z] = await werteHolen(id, [q(LOG_BLATT) + '!A' + logZeile + ':J' + logZeile], 'UNFORMATTED_VALUE');
     const r = z[0] || [];
     if (r[8] === 'rueckgaengig') throw new Error('Schon rückgängig gemacht.');
     const zeile = Number(r[4]), spalte = Number(r[5]), vorher = String(r[6] === undefined ? '' : r[6]), nachher = String(r[7]);
@@ -498,6 +545,14 @@
     if (!passt) throw new Error('Die Zelle wurde inzwischen weiter geändert. Bitte direkt in der Tabelle korrigieren.');
     const zurueck = [updateZelle(s.blatt.sheetId, zeile, spalte, vorher === '' ? '' : (vorher.charAt(0) === '=' ? vorher : Number(vorher)))];
     if (vorher === '') zurueck.push(notiz(s.blatt.sheetId, zeile, spalte, ''));
+    else if (r[9]) {
+      // Fremdwaehrungs-Zeile aus der Notiz nehmen
+      try {
+        const n = (await zeilenNotizen(id, s.blatt.title, zeile))[spalte] || '';
+        const rest = n.split('\n').filter((l, i, a) => l !== String(r[9]) || a.indexOf(l) !== i).join('\n');
+        if (rest !== n) zurueck.push(notiz(s.blatt.sheetId, zeile, spalte, rest));
+      } catch (err) { console.warn('Notiz nicht angepasst', err); }
+    }
     await batch(id, zurueck);
     await api(SHEETS + '/' + id + '/values/' + encodeURIComponent(q(LOG_BLATT) + '!I' + logZeile) + '?valueInputOption=RAW', { method: 'PUT', body: { values: [['rueckgaengig']] } });
     return { verlauf: await verlauf(id), struktur: await struktur(id) };
@@ -921,6 +976,6 @@
   window.Google = {
     TEST, anmelden, abmelden, tokenAusAdresse, token, restMinuten, nutzer, NichtAngemeldet,
     meineDateien, kandidaten, verbinden, ersterFinanzplaner, jahrAnlegen,
-    SKRIPT_SCOPE, struktur, verlauf, blaetter, hinzufuegen, taktAusTurnus, turnusSkriptVersion, turnusSkriptEinrichten, turnusSkriptMerken, rueckgaengig, vorlageAbgleichen, namenAktualisieren, kontenAuswahl, kontenAuswahlSpeichern, normName, fehlendeAusVorlage, sparziele, finanzierungLaden, finanzierungSpeichern, altesBlattEntfernen, immobilienErsparnis, hinweiseSchreiben
+    SKRIPT_SCOPE, struktur, verlauf, blaetter, hinzufuegen, taktAusTurnus, turnusSkriptVersion, turnusSkriptEinrichten, turnusSkriptMerken, rueckgaengig, wechselkurs, vorlageAbgleichen, namenAktualisieren, kontenAuswahl, kontenAuswahlSpeichern, normName, fehlendeAusVorlage, sparziele, finanzierungLaden, finanzierungSpeichern, altesBlattEntfernen, immobilienErsparnis, hinweiseSchreiben
   };
 })();

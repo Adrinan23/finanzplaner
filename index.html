@@ -74,8 +74,17 @@
     <label for="posten">Posten</label>
     <select id="posten"></select>
     <div id="bisher"></div>
-    <label for="betrag">Betrag (€)</label>
-    <input id="betrag" inputmode="decimal" placeholder="0,00" autocomplete="off">
+    <label for="betrag">Betrag</label>
+    <div class="betragZeile">
+      <input id="betrag" inputmode="decimal" placeholder="0,00" autocomplete="off">
+      <select id="waehrung" aria-label="Währung">
+        <option value="EUR">€ EUR</option><option value="USD">$ USD</option><option value="GBP">£ GBP</option><option value="CHF">CHF</option>
+        <option value="CAD">CAD</option><option value="AUD">AUD</option><option value="JPY">¥ JPY</option><option value="PLN">PLN</option>
+        <option value="CZK">CZK</option><option value="DKK">DKK</option><option value="SEK">SEK</option><option value="NOK">NOK</option>
+        <option value="HUF">HUF</option><option value="TRY">TRY</option><option value="THB">THB</option>
+      </select>
+    </div>
+    <div id="umrechnung" class="sub" hidden></div>
     <div class="wiederholen">
       <label class="check"><input type="checkbox" id="wiederholen"> Wiederholen</label>
       <span id="bisFeld" hidden><select id="takt"><option value="1">jeden Monat</option><option value="2">alle 2 Monate</option><option value="3">alle 3 Monate</option><option value="4">alle 4 Monate</option><option value="6">alle 6 Monate</option></select> bis <select id="bisMonat"></select></span>
@@ -136,7 +145,7 @@
     <a id="tabelleLink" target="_blank" rel="noopener">Meine Tabelle öffnen</a>
     <button class="link" id="vorlageAbgleich">Neue Zeilen aus Vorlage übernehmen</button>
     <button class="link" id="abmelden">Abmelden</button>
-    <span class="sub">Version 2026-11-02e</span>
+    <span class="sub">Version 2026-11-15</span>
   </div>
 </main>
 

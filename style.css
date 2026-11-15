@@ -168,3 +168,9 @@ button.zurueck { padding:0 0 10px; font-size:15px; text-decoration:none; }
 .segment button { flex:1; border:0; background:none; color:var(--text); font:inherit; font-size:15px; padding:10px 4px; border-radius:9px; cursor:pointer; }
 .segment button.aktiv { background:var(--accent); color:#fff; font-weight:600; }
 .darstellung { border-top:1px solid var(--line); }
+
+.betragZeile { display:flex; gap:8px; }
+.betragZeile input { flex:1; min-width:0; }
+.betragZeile select { width:auto; flex:none; font-size:16px; font-weight:600; }
+#umrechnung { font-size:13px; margin-top:6px; }
+#umrechnung.fehler { color:var(--err); }

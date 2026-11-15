@@ -318,6 +318,7 @@
   }
   function wiederholenZuruecksetzen() {
     $('betrag').value = ''; $('wiederholen').checked = false; $('bisFeld').hidden = true;
+    zeigeUmrechnung();
     taktVorschlagen();
   }
   // Monate, in die eingetragen wird: von m bis bis, im Abstand takt
@@ -399,12 +400,49 @@
   // ---------- Speichern ----------
 
   function leseBetrag() {
-    return parseFloat($('betrag').value.replace(/\s|€/g, '').replace(/\.(?=\d{3}(\D|$))/g, '').replace(',', '.'));
+    return parseFloat($('betrag').value.replace(/\s|€|\$|£|¥/g, '').replace(/\.(?=\d{3}(\D|$))/g, '').replace(',', '.'));
   }
 
+  // ---------- Fremdwaehrung ----------
+  // Betrag in z. B. Dollar eingeben: die App rechnet mit dem Tageskurs in Euro um und traegt Euro ein.
+  // Originalbetrag, Waehrung und Kurs stehen als Notiz an der Zelle.
+  const zahlDe = (n, st) => Number(n).toLocaleString('de-DE', { minimumFractionDigits: st, maximumFractionDigits: st });
+  const datumDe = d => { const t = String(d || '').split('-'); return t.length === 3 ? t[2] + '.' + t[1] + '.' + t[0] : ''; };
+  $('waehrung').value = hole('kosten.waehrung') || 'EUR';
+  if (!$('waehrung').value) $('waehrung').value = 'EUR';
+  let umrechnungNr = 0;
+  async function zeigeUmrechnung() {
+    const code = $('waehrung').value, nr = ++umrechnungNr, feld = $('umrechnung');
+    if (code === 'EUR') { feld.hidden = true; return; }
+    feld.hidden = false; feld.className = 'sub';
+    const b = leseBetrag();
+    try {
+      const k = await G.wechselkurs(code);
+      if (nr !== umrechnungNr) return;
+      const kursText = '1 ' + code + ' = ' + zahlDe(k.kurs, 4) + ' € (' + (k.alt ? 'letzter bekannter Kurs vom ' : 'Kurs vom ') + datumDe(k.datum) + ')';
+      feld.textContent = (b && isFinite(b) ? '= ' + euro(Math.round(b * k.kurs * 100) / 100) + ' · ' : '') + kursText;
+    } catch (err) {
+      if (nr !== umrechnungNr) return;
+      feld.textContent = err.message; feld.className = 'sub fehler';
+    }
+  }
+  $('waehrung').onchange = () => { merke('kosten.waehrung', $('waehrung').value); zeigeUmrechnung(); };
+  $('betrag').addEventListener('input', zeigeUmrechnung);
+  zeigeUmrechnung();
+
   $('speichern').onclick = async () => {
-    const betrag = leseBetrag();
-    if (!betrag || !isFinite(betrag)) { meldung('Bitte einen gültigen Betrag eingeben, z. B. 12,50', 'fehler'); return; }
+    const eingabe = leseBetrag();
+    if (!eingabe || !isFinite(eingabe)) { meldung('Bitte einen gültigen Betrag eingeben, z. B. 12,50', 'fehler'); return; }
+    // Fremdwaehrung in Euro umrechnen
+    const code = $('waehrung').value;
+    let betrag = eingabe, waehrung = null;
+    if (code !== 'EUR') {
+      let k;
+      try { k = await G.wechselkurs(code); } catch (err) { meldung(err.message, 'fehler'); return; }
+      betrag = Math.round(eingabe * k.kurs * 100) / 100;
+      waehrung = { betrag: eingabe, code: code, kurs: k.kurs, datum: k.datum, euro: betrag };
+    }
+    const vonText = waehrung ? zahlDe(eingabe, 2) + ' ' + code + ' = ' : '';
     const p = posten(), m = Number($('monat').value);
     if (!p) return;
     const bis = $('wiederholen').checked ? Number($('bisMonat').value) : m;
@@ -418,10 +456,11 @@
     }
     // Beim Wiederholen den Turnus in Spalte D mitschreiben (wie bei der Auswahl direkt in der Tabelle)
     const eintrag = { monat: m, bisMonat: bis, takt: takt, turnus: bis > m, zeile: p.zeile, posten: p.name, betrag: betrag };
+    if (waehrung) eintrag.waehrung = waehrung;
     const vormerken = () => {
       inWarteschlange(eintrag);
       wiederholenZuruecksetzen();
-      meldung('Offline gespeichert: ' + euro(betrag) + ' · ' + p.name + '. Wird eingetragen, sobald du wieder Internet hast.', 'ok');
+      meldung('Offline gespeichert: ' + vonText + euro(betrag) + ' · ' + p.name + '. Wird eingetragen, sobald du wieder Internet hast.', 'ok');
       zeigeVerlauf(letzterVerlauf);
       $('speichern').disabled = false;
     };
@@ -435,7 +474,7 @@
       wiederholenZuruecksetzen();
       zeigeBisher();
       const zeitraum = bis > m ? ' · ' + zeitraumText(m, bis, takt) : '';
-      meldung('Gespeichert: ' + euro(betrag) + ' · ' + p.name + zeitraum, 'ok');
+      meldung('Gespeichert: ' + vonText + euro(betrag) + ' · ' + p.name + zeitraum, 'ok');
       zeigeVerlauf(r.verlauf);
     } catch (err) {
       if (netzFehler(err) && !(err instanceof G.NichtAngemeldet)) {

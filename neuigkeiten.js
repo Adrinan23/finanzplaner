@@ -2,6 +2,14 @@
 // Neue Eintraege oben anfuegen. Gibt es nichts Neues, erscheint keine Meldung.
 window.NEUIGKEITEN = [
   {
+    id: '2026-11-15',
+    punkte: [
+      'Neu: Beträge in fremder Währung eintragen. Wähle neben dem Betrag z. B. „$ USD“, die App rechnet mit dem aktuellen Tageskurs in Euro um und trägt Euro in deine Tabelle ein.',
+      'Der Originalbetrag mit Kurs steht als Notiz an der Zelle, z. B. „15,00 USD = 12,92 € (Kurs 0,8612)“. Die gewählte Währung merkt sich die App auf deinem Gerät.',
+      'Du musst nichts einrichten.'
+    ]
+  },
+  {
     id: '2026-11-02d',
     punkte: [
       'Neu unten in der Leiste: „Weitere“. Dort findest du jetzt „Immobilien“ und die Einstellungen.',
