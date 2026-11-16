@@ -2,6 +2,15 @@
 // Neue Eintraege oben anfuegen. Gibt es nichts Neues, erscheint keine Meldung.
 window.NEUIGKEITEN = [
   {
+    id: '2026-11-16',
+    punkte: [
+      'Neu: Finanzplaner für Vereine. Unter „Weitere“ → „Tabellen“ kannst du zusätzlich zu deinem privaten Finanzplaner eine Vereinstabelle anlegen und sie in Google Sheets über „Freigeben“ mit dem Vorstand teilen.',
+      'Unter „Weitere“ → „Tabellen“ wechselst du zwischen deinen Tabellen. Ein neues Jahr legst du wie bisher oben über die Jahreszahl an.',
+      'Neu unter „Weitere“ → „Hilfe“: „Feedback oder Fehler melden“. Schreib uns, wenn etwas nicht klappt oder du eine Idee hast.',
+      'Für deinen privaten Finanzplaner ändert sich nichts, du musst nichts einrichten.'
+    ]
+  },
+  {
     id: '2026-11-15',
     punkte: [
       'Neu: Beträge in fremder Währung eintragen. Wähle neben dem Betrag z. B. „$ USD“, die App rechnet mit dem aktuellen Tageskurs in Euro um und trägt Euro in deine Tabelle ein.',

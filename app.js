@@ -17,6 +17,10 @@
   function setzeAuswahl(a) { auswahl = a; merke('kosten.auswahl:' + dateien[jahr].id, JSON.stringify(a)); }
   function setzeNutzung(n) { if (!n) return; nutzung = n; merke('kosten.nutzung:' + dateien[jahr].id, JSON.stringify(n)); }
   function ausgeschaltet(p) { const n = G.normName(p.name); return auswahl.aus.some(x => G.normName(x) === n); }
+  // Gewaehlte Tabelle: privat oder Verein, und ob sie dem Nutzer gehoert (Kassenwart)
+  const reihe = () => G.aktuelleReihe() || { art: 'privat', eigen: true, name: '', besitzer: '' };
+  const verein = () => reihe().art === 'verein';
+  const darfAendern = () => !verein() || reihe().eigen;
 
   function meldung(text, klasse, ziel) { const m = $(ziel || 'meldung'); m.textContent = text || ''; m.className = 'meldung ' + (klasse || ''); }
   function zeige(bereiche) {
@@ -87,7 +91,7 @@
         fertig++;
       } catch (err) {
         if (err instanceof G.NichtAngemeldet) { synchronLaeuft = false; fehler(err); return; }
-        if (netzFehler(err) && !status.geschrieben) break;
+        if ((netzFehler(err) || err instanceof G.Besetzt) && !status.geschrieben) break;
         // Bleibt mit Fehler in der Liste, damit nichts doppelt eingetragen wird.
         setzeWarteschlange(warteschlange().map(x => x.id === e.id ? Object.assign(x, {
           fehler: netzFehler(err) ? 'Verbindung abgebrochen. Bitte in der Tabelle prüfen, ob der Betrag schon drinsteht.' : (err.message || String(err))
@@ -197,7 +201,7 @@
 
   function setzeModus(m) {
     const SEITEN = ['uebersicht', 'finanzierung', 'weitere', 'konten'];
-    const gibt = x => SEITEN.indexOf(x) >= 0 || daten.bereiche.some(b => art(b) === x && b.posten.some(p => !p.auto && !ausgeschaltet(p)));
+    const gibt = x => (x === 'finanzierung' ? !verein() : SEITEN.indexOf(x) >= 0) || daten.bereiche.some(b => art(b) === x && b.posten.some(p => !p.auto && !ausgeschaltet(p)));
     modus = (MODI[m] || SEITEN.indexOf(m) >= 0) && gibt(m) ? m : 'variabel';
     merke('modus', modus === 'konten' ? 'weitere' : modus);
     // Immobilien und Konten-Auswahl gehoeren zu „Weitere“
@@ -222,7 +226,57 @@
 
   function zeigeWeitere() {
     const n = auswahl.aus.length;
-    $('kontenZahl').textContent = n ? n + ' Posten ausgeschaltet' : 'Wähle, welche Posten du in der App siehst';
+    $('kontenZahl').textContent = !darfAendern() ? 'Legt der Kassenwart fest' + (n ? ' · ' + n + ' Posten ausgeschaltet' : '')
+      : (n ? n + ' Posten ausgeschaltet' : (verein() ? 'Wähle, welche Posten der Verein nutzt' : 'Wähle, welche Posten du in der App siehst'));
+    $('menueImmobilien').hidden = verein();
+    zeigeTabellen();
+  }
+
+  // ---------- Tabellen: privat und Vereine ----------
+
+  const artText = r => r.art === 'verein' ? 'Verein' + (r.eigen ? ' · du bist Kassenwart' : (r.besitzer ? ' · Kassenwart: ' + r.besitzer : '')) : 'Privat';
+  function zeigeTabellen() {
+    const box = $('tabellenListe'); box.innerHTML = '';
+    const aktuelle = reihe();
+    G.reihen().forEach(r => {
+      const b = document.createElement('button'); b.className = 'eintrag'; b.type = 'button';
+      b.innerHTML = '<span><b></b><span class="sub"></span></span><span class="pfeil"></span>';
+      b.querySelector('b').textContent = r.name || (r.art === 'verein' ? 'Vereinstabelle' : 'Mein Finanzplaner');
+      b.querySelector('.sub').textContent = artText(r);
+      const aktiv = r.key === aktuelle.key;
+      b.querySelector('.pfeil').textContent = aktiv ? '✓' : '›';
+      if (aktiv) b.classList.add('aktiv');
+      b.onclick = () => { if (!aktiv) wechsleTabelle(r.key); };
+      box.appendChild(b);
+    });
+    const neu = document.createElement('button'); neu.className = 'eintrag'; neu.type = 'button';
+    neu.innerHTML = '<span><b>Neue Tabelle anlegen</b><span class="sub">Privat oder für einen Verein – nicht für ein neues Jahr</span></span><span class="pfeil">›</span>';
+    neu.onclick = () => einrichten(null, true);
+    box.appendChild(neu);
+    $('vereinHinweis').hidden = !(verein() && reihe().eigen);
+    $('jahrHinweis').textContent = jahrHinweisText();
+  }
+  // Neues Jahr = oben ueber die Jahreszahl, nicht ueber "Neue Tabelle anlegen"
+  function jahrHinweisText() {
+    const naechstes = Math.max(Number(jahr) || 0, new Date().getFullYear()) + 1;
+    if (!darfAendern()) return 'Neues Jahr? Das legt der Kassenwart für den Verein an. Danach kannst du es oben über die Jahreszahl auswählen.';
+    return 'Neues Jahr? Dafür brauchst du keine neue Tabelle: Tippe oben auf die Jahreszahl und wähle „' + naechstes + ' (neu)“. Die App legt das Jahr aus deiner Tabelle an, mit denselben Posten' + (verein() ? ' und denselben Freigaben.' : '.');
+  }
+
+  async function wechsleTabelle(key) {
+    if (offline() || offlineGestartet) { meldung('Zum Wechseln der Tabelle brauchst du Internet.', 'fehler'); return; }
+    G.setzeReihe(key);
+    try {
+      dateien = await G.meineDateien();
+      merke('modus', 'variabel');
+      await ladeJahr(standardJahr());
+      window.scrollTo(0, 0);
+    } catch (err) { fehler(err); }
+  }
+  function zeigeTabellenName() {
+    const r = reihe(), mehrere = G.reihen().length > 1;
+    $('tabelleName').hidden = !(mehrere || verein());
+    $('tabelleName').textContent = (verein() ? 'Verein: ' : 'Privat: ') + (r.name || '');
   }
   // Darstellung: hell, dunkel oder wie das Geraet (nur auf diesem Geraet gespeichert)
   function setzeDarstellung(w) {
@@ -240,6 +294,12 @@
 
   function zeigeKonten() {
     meldung('', '', 'meldungKonten');
+    const nurLesen = !darfAendern();
+    $('kontenNurLesen').hidden = !nurLesen;
+    $('kontenNurLesen').textContent = 'Die Konten-Auswahl gilt für alle im Verein und wird vom Kassenwart festgelegt' +
+      (reihe().besitzer ? ' (' + reihe().besitzer + ')' : '') + '. Du siehst hier, welche Posten eingeschaltet sind.';
+    $('kontenTabelle').disabled = nurLesen;
+    $('kontenSpeichernKarte').hidden = nurLesen;
     $('kontenTabelle').checked = auswahl.tabelle;
     const box = $('kontenListe'); box.innerHTML = '';
     daten.bereiche.forEach(b => {
@@ -256,7 +316,7 @@
         const t = document.createElement('span'); t.textContent = p.bezeichnung;
         const z = document.createElement('span'); z.className = 'zaehler';
         const n = nutzung[p.name] || 0; z.textContent = n ? n + '×' : '';
-        const c = document.createElement('input'); c.type = 'checkbox'; c.className = 'schalter'; c.checked = !ausgeschaltet(p);
+        const c = document.createElement('input'); c.type = 'checkbox'; c.className = 'schalter'; c.checked = !ausgeschaltet(p); c.disabled = nurLesen;
         c.dataset.name = p.name;
         l.appendChild(t); l.appendChild(z); l.appendChild(c); card.appendChild(l); schalter.push(c);
       });
@@ -264,11 +324,13 @@
       alle.onclick = () => { const an = !schalter.every(c => c.checked); schalter.forEach(c => { c.checked = an; }); beschriften(); };
       schalter.forEach(c => { c.onchange = beschriften; });
       beschriften();
+      alle.hidden = nurLesen;
       box.appendChild(card);
     });
   }
 
   $('kontenSpeichern').onclick = async function () {
+    if (!darfAendern()) return;
     if (offline()) { meldung('Zum Speichern brauchst du Internet.', 'fehler', 'meldungKonten'); return; }
     const aus = [].filter.call(document.querySelectorAll('#kontenListe .schalter'), c => !c.checked).map(c => c.dataset.name);
     const tabelle = $('kontenTabelle').checked;
@@ -376,7 +438,7 @@
       li.innerHTML = '<div class="info"><div class="posten"></div><div class="sub"></div></div><div class="betrag"></div>';
       li.querySelector('.posten').textContent = e.posten;
       const zeit = new Date(String(e.zeit).replace(' ', 'T'));
-      li.querySelector('.sub').textContent = e.monat + (isNaN(zeit) ? '' : ' · ' + zeit.toLocaleString('de-DE', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }));
+      li.querySelector('.sub').textContent = e.monat + (isNaN(zeit) ? '' : ' · ' + zeit.toLocaleString('de-DE', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })) + (e.von ? ' · ' + e.von : '');
       const plus = einnahme[e.posten];
       li.querySelector('.betrag').textContent = (plus ? '+ ' : '− ') + euro(e.betrag);
       if (plus) li.querySelector('.betrag').classList.add('plus');
@@ -493,7 +555,7 @@
     const vorhanden = Object.keys(dateien).map(Number).sort((a, b) => a - b);
     vorhanden.forEach(j => sel.add(new Option(j, j)));
     const heute = new Date().getFullYear();
-    [heute, Math.max(vorhanden[vorhanden.length - 1], heute) + 1].forEach(j => {
+    if (darfAendern()) [heute, Math.max(vorhanden[vorhanden.length - 1], heute) + 1].forEach(j => {
       if (vorhanden.indexOf(j) < 0 && ![].some.call(sel.options, o => Number(o.value) === j)) sel.add(new Option(j + ' (neu)', j));
     });
     sel.value = String(jahr);
@@ -503,7 +565,10 @@
     const j = this.value, sel = this;
     if (offline() || offlineGestartet) { sel.value = jahr; meldung('Ohne Internet kannst du das Jahr nicht wechseln.', 'fehler'); return; }
     if (!dateien[j]) {
-      if (!confirm('Finanzplaner für ' + j + ' anlegen?\n\nEr wird aus deinem Vorjahr erstellt: gleiche Posten, alle Beträge leer. Deine bisherigen Jahre bleiben unverändert.')) { sel.value = jahr; return; }
+      const frage = verein()
+        ? 'Vereinstabelle für ' + j + ' anlegen?\n\nSie wird aus dem Vorjahr erstellt: gleiche Posten, alle Beträge leer. Alle, mit denen das Vorjahr geteilt ist, bekommen auch das neue Jahr freigegeben (ohne E-Mail).'
+        : 'Finanzplaner für ' + j + ' anlegen?\n\nEr wird aus deinem Vorjahr erstellt: gleiche Posten, alle Beträge leer. Deine bisherigen Jahre bleiben unverändert.';
+      if (!confirm(frage)) { sel.value = jahr; return; }
       sel.disabled = true; meldung('Lege Finanzplaner ' + j + ' an …');
       try {
         await G.jahrAnlegen(Number(j));
@@ -537,6 +602,7 @@
       auswahl = ladeLokal('kosten.auswahl:' + id, { aus: [], tabelle: false });
       nutzung = ladeLokal('kosten.nutzung:' + id, {});
       zeige(['formular', 'verlauf', 'fuss']);
+      zeigeTabellenName();
       fuelleJahre();
       $('tabelleLink').href = dateien[jahr].webViewLink || ('https://docs.google.com/spreadsheets/d/' + id + '/edit');
       $('tabelleLink').textContent = (dateien[jahr].name || 'Tabelle') + ' öffnen';
@@ -575,10 +641,39 @@
 
   // ---------- Erster Start ----------
 
-  async function einrichten(user) {
+  // Erster Start (user gesetzt) oder „Neue Tabelle anlegen“ unter Weitere (zusaetzlich = true)
+  let neueArt = 'privat';
+  function setzeNeueArt(a) {
+    neueArt = a;
+    document.querySelectorAll('#artWahl button').forEach(b => b.classList.toggle('aktiv', b.dataset.wert === a));
+    $('nameLabel').textContent = a === 'verein' ? 'Name des Vereins' : 'Dein Name';
+    $('neuAnlegen').textContent = a === 'verein' ? 'Vereinstabelle anlegen' : 'Neuen Finanzplaner anlegen';
+    $('artText').textContent = a === 'verein'
+      ? 'Die Tabelle gehört dem Konto, mit dem du gerade angemeldet bist. Melde dich dafür am besten mit dem Google-Konto des Vereins an. Danach gibst du sie in Google Sheets über „Freigeben“ für die Vorstandsmitglieder frei.'
+      : 'Für deine eigenen Einnahmen und Ausgaben. Sie liegt in deinem Google Drive.';
+    $('kandidatenBox').hidden = a === 'verein' || !$('kandidaten').children.length;
+    if (a === 'verein') $('name').value = '';
+    else if (!$('name').value) $('name').value = (hole('kosten.name') || '').split(' ')[0];
+  }
+  document.querySelectorAll('#artWahl button').forEach(b => { b.onclick = () => setzeNeueArt(b.dataset.wert); });
+  $('einrichtenZurueck').onclick = () => { zeige(['formular', 'verlauf', 'fuss']); setzeModus('weitere'); };
+
+  async function einrichten(user, zusaetzlich) {
     zeige(['einrichten']);
-    $('titel').textContent = 'Finanzplaner';
-    $('name').value = (user.displayName || '').split(' ')[0];
+    $('titel').textContent = zusaetzlich ? 'Neue Tabelle' : 'Finanzplaner';
+    $('einrichtenTitel').textContent = zusaetzlich ? 'Neue Tabelle anlegen' : 'Deinen Finanzplaner einrichten';
+    $('einrichtenZurueck').hidden = !zusaetzlich;
+    $('neuAnlegen').disabled = false;
+    meldung('', '', 'meldungEinrichten');
+    const hatPrivat = G.reihen().some(r => r.art === 'privat');
+    $('artPrivat').hidden = hatPrivat;
+    $('jahrHinweisEinrichten').hidden = !zusaetzlich;
+    if (zusaetzlich) $('jahrHinweisEinrichten').textContent = (hatPrivat ? 'Einen privaten Finanzplaner hast du schon, hier kannst du deshalb nur noch eine Vereinstabelle anlegen. ' : '') +
+      'Für ein neues Jahr brauchst du keine neue Tabelle: Geh zurück und tippe oben auf die Jahreszahl.';
+    $('name').value = ((user && user.displayName) || hole('kosten.name') || '').split(' ')[0];
+    $('kandidaten').innerHTML = '';
+    setzeNeueArt(hatPrivat ? 'verein' : 'privat');
+    if (hatPrivat) return;
     try {
       const liste = await G.kandidaten();
       $('kandidatenBox').hidden = !liste.length;
@@ -603,17 +698,20 @@
         li.appendChild(b);
         ul.appendChild(li);
       });
+      $('kandidatenBox').hidden = neueArt === 'verein' || !liste.length;
     } catch (err) { fehler(err, 'meldungEinrichten'); }
   }
 
   $('neuAnlegen').onclick = async function () {
     const name = $('name').value.trim();
-    if (!name) { meldung('Bitte einen Namen eingeben.', 'fehler', 'meldungEinrichten'); return; }
-    this.disabled = true; meldung('Lege Finanzplaner an …', '', 'meldungEinrichten');
+    if (!name) { meldung(neueArt === 'verein' ? 'Bitte den Namen des Vereins eingeben.' : 'Bitte einen Namen eingeben.', 'fehler', 'meldungEinrichten'); return; }
+    this.disabled = true; meldung(neueArt === 'verein' ? 'Lege Vereinstabelle an …' : 'Lege Finanzplaner an …', '', 'meldungEinrichten');
     try {
-      const j = await G.ersterFinanzplaner(name);
+      const j = await G.ersterFinanzplaner(name, neueArt);
       dateien = await G.meineDateien();
+      merke('modus', 'variabel');
       await ladeJahr(j);
+      if (neueArt === 'verein') meldung('Vereinstabelle angelegt. Gib sie jetzt in Google Sheets über „Freigeben“ für die Vorstandsmitglieder frei (als Bearbeiter). Den Link findest du unten unter „Tabelle öffnen“.', 'ok');
     } catch (err) { this.disabled = false; fehler(err, 'meldungEinrichten'); }
   };
 
@@ -656,6 +754,7 @@
   // Turnus-Automatik: anbieten, solange sie in der Tabelle des gewaehlten Jahres fehlt
   async function pruefeSkript() {
     $('hinweisSkript').hidden = true;
+    if (verein()) return;
     let weg = null;
     try { weg = sessionStorage.getItem('kosten.skriptWeg'); } catch (e) { }
     if (weg === dateien[jahr].id) return;

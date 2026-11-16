@@ -19,7 +19,7 @@ h2 { font-size:15px; margin:0 0 6px; }
 label { display:block; font-size:13px; color:var(--muted); margin:12px 0 4px; }
 label:first-child { margin-top:0; }
 #bereichFeld label { margin-top:12px; }
-select, input { width:100%; font-size:17px; padding:12px; border-radius:10px; border:1px solid var(--line); background:var(--bg); color:var(--text); }
+select, input, textarea { width:100%; font-size:17px; padding:12px; border-radius:10px; border:1px solid var(--line); background:var(--bg); color:var(--text); }
 input#betrag { font-size:26px; font-weight:600; }
 #bisher { font-size:13px; color:var(--muted); margin-top:6px; }
 button.haupt { width:100%; margin-top:16px; padding:14px; font-size:18px; font-weight:600; border:0; border-radius:12px; background:var(--accent); color:#fff; cursor:pointer; }
@@ -174,3 +174,12 @@ button.zurueck { padding:0 0 10px; font-size:15px; text-decoration:none; }
 .betragZeile select { width:auto; flex:none; font-size:16px; font-weight:600; }
 #umrechnung { font-size:13px; margin-top:6px; }
 #umrechnung.fehler { color:var(--err); }
+
+/* Tabellen (privat / Verein) */
+.tabelleName { margin:-6px 0 10px; font-size:13px; }
+.abschnittText { margin:-4px 4px 14px; font-size:13px; }
+button.eintrag.aktiv .pfeil { color:var(--accent); }
+#artWahl { margin-top:10px; }
+#kontenNurLesen { margin:8px 0 4px; }
+.hinweisBox { border:1px solid var(--accent); border-radius:10px; padding:10px 12px; margin:8px 0 12px; font-size:14px; }
+textarea { font-family:inherit; font-size:16px; resize:vertical; box-sizing:border-box; }

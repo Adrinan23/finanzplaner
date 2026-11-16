@@ -1,6 +1,8 @@
 // Anmeldung bei Google und Zugriff auf die Finanzplaner-Tabellen (Drive + Sheets API).
 // Jeder Nutzer arbeitet mit seinem eigenen Konto; die Dateien liegen in seinem Drive.
 // Die Dateien der App sind in Drive mit appProperties { kostenApp: '1', jahr: '2026' } markiert.
+// Vereinstabellen tragen zusaetzlich { art: 'verein', reihe: '<id der ersten Datei>' }. Sie gehoeren dem
+// Vereinskonto und werden mit den Mitgliedern geteilt; eine "Reihe" sind alle Jahre derselben Tabelle.
 
 (function () {
   const CFG = window.KOSTEN_CONFIG;
@@ -18,6 +20,7 @@
   const markierung = jahr => ({ [MARK]: '1', jahr: String(jahr) });
   // "Finanzplanung 2026 (Test)" -> "Finanzplanung"
   const grundname = n => n.replace(/\s*\(Test\)\s*$/, '').replace(/\s*20\d\d\s*$/, '').trim();
+  const VORLAGEN = [CFG.VORLAGE_ID, CFG.VEREIN_VORLAGE_ID];
 
   function lies(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
   function schreib(k, v) { try { if (v === null) localStorage.removeItem(k); else localStorage.setItem(k, v); } catch (e) { } }
@@ -38,6 +41,8 @@
     const hint = lies('kosten.email');
     if (hint) p.set('login_hint', hint);
     if (still) p.set('prompt', 'none');
+    // Nach dem Abmelden (keine E-Mail gemerkt) immer die Kontoauswahl zeigen, damit man ein anderes Konto nehmen kann
+    else if (!hint) p.set('prompt', 'select_account');
     location.assign('https://accounts.google.com/o/oauth2/v2/auth?' + p.toString());
   }
 
@@ -83,6 +88,7 @@
   async function nutzer() {
     const d = await api(DRIVE + '/about?fields=user(emailAddress,displayName)');
     schreib('kosten.email', d.user.emailAddress);
+    schreib('kosten.name', d.user.displayName || d.user.emailAddress);
     return d.user;
   }
 
@@ -229,16 +235,59 @@
 
   // ---------- Dateien des Nutzers ----------
 
-  async function meineDateien() {
+  // Alle Tabellen des Nutzers, nach Reihen geordnet: der eigene private Finanzplaner ('privat') und
+  // jede Vereinstabelle ('verein:<reihe>'), egal ob sie dem Nutzer gehoert oder mit ihm geteilt ist.
+  // Geteilte private Tabellen anderer Leute werden nicht gezeigt.
+  const artCache = {}, eigenCache = {};
+  let reihenCache = {}, aktuell = null;
+  const reiheSchluessel = () => 'kosten.reihe' + (TEST ? '.test' : '') + ':' + (lies('kosten.email') || '');
+  async function reihenLaden() {
     const p = new URLSearchParams({
-      q: "appProperties has { key='" + MARK + "' and value='1' } and trashed=false and 'me' in owners",
-      fields: 'files(id,name,appProperties,webViewLink)', pageSize: '100'
+      q: "appProperties has { key='" + MARK + "' and value='1' } and trashed=false",
+      fields: 'files(id,name,appProperties,webViewLink,ownedByMe,owners(displayName,emailAddress))', pageSize: '200'
     });
     const d = await api(DRIVE + '/files?' + p.toString());
-    const jahre = {};
-    d.files.forEach(f => { const j = f.appProperties && f.appProperties.jahr; if (j && !jahre[j]) jahre[j] = f; });
-    return jahre;
+    const reihen = {};
+    d.files.forEach(f => {
+      const ap = f.appProperties || {}, j = ap.jahr;
+      const verein = ap.art === 'verein';
+      if (!j || (!verein && !f.ownedByMe)) return;
+      artCache[f.id] = verein ? 'verein' : 'privat';
+      eigenCache[f.id] = !!f.ownedByMe;
+      const key = verein ? 'verein:' + (ap.reihe || f.id) : 'privat';
+      const besitzer = (f.owners || [])[0] || {};
+      const r = reihen[key] || (reihen[key] = { key: key, art: verein ? 'verein' : 'privat', name: '', eigen: !!f.ownedByMe, besitzer: besitzer.displayName || besitzer.emailAddress || '', jahre: {} });
+      if (!r.jahre[j]) r.jahre[j] = { id: f.id, name: f.name, webViewLink: f.webViewLink, appProperties: ap };
+      if (!r.name || Number(j) >= r.neuestes) { r.name = grundname(f.name); r.neuestes = Number(j); }
+    });
+    reihenCache = reihen;
+    return reihen;
   }
+  function reihen() {
+    return Object.keys(reihenCache).map(k => reihenCache[k]).sort((a, b) => (a.art === 'privat' ? -1 : b.art === 'privat' ? 1 : a.name.localeCompare(b.name)));
+  }
+  function setzeReihe(key) { schreib(reiheSchluessel(), key); aktuell = reihenCache[key] || null; }
+  function aktuelleReihe() { return aktuell; }
+
+  // Jahre der gewaehlten Reihe ({ '2026': {id, name, webViewLink} }); ohne Wahl der private Finanzplaner.
+  async function meineDateien() {
+    const r = await reihenLaden();
+    let key = lies(reiheSchluessel());
+    if (!r[key]) key = r.privat ? 'privat' : Object.keys(r)[0];
+    if (!key) { aktuell = null; return {}; }
+    setzeReihe(key);
+    return r[key].jahre;
+  }
+
+  // Art einer Datei ('privat' oder 'verein'), notfalls direkt aus Drive gelesen
+  async function artVon(id) {
+    if (artCache[id]) return artCache[id];
+    const f = await api(DRIVE + '/files/' + id + '?fields=appProperties,ownedByMe');
+    artCache[id] = f.appProperties && f.appProperties.art === 'verein' ? 'verein' : 'privat';
+    eigenCache[id] = !!f.ownedByMe;
+    return artCache[id];
+  }
+  const vorlageVon = async id => (await artVon(id)) === 'verein' ? CFG.VEREIN_VORLAGE_ID : CFG.VORLAGE_ID;
 
   // Tabellen, die wie ein Finanzplaner aussehen (fuer den ersten Start / Umzug von der alten App).
   async function kandidaten() {
@@ -248,8 +297,8 @@
     });
     const d = await api(DRIVE + '/files?' + p.toString());
     const ap = f => f.appProperties || {};
-    if (TEST) return d.files.filter(f => f.id !== CFG.VORLAGE_ID && !ap(f).kostenAppTest && !/\(Test\)/.test(f.name));
-    return d.files.filter(f => f.id !== CFG.VORLAGE_ID && !ap(f).kostenApp && !ap(f).kostenAppTest && !/\(Test\)/.test(f.name));
+    if (TEST) return d.files.filter(f => VORLAGEN.indexOf(f.id) < 0 && !ap(f).kostenAppTest && !/\(Test\)/.test(f.name));
+    return d.files.filter(f => VORLAGEN.indexOf(f.id) < 0 && !ap(f).kostenApp && !ap(f).kostenAppTest && !/\(Test\)/.test(f.name));
   }
 
   async function jahrDerDatei(id) {
@@ -263,7 +312,7 @@
   // In der Testversion wird stattdessen eine Testkopie angelegt; das Original bleibt unberuehrt.
   async function verbinden(id) {
     const jahr = await jahrDerDatei(id);
-    const meine = await meineDateien();
+    const meine = (await reihenLaden()).privat ? reihenCache.privat.jahre : {};
     if (meine[jahr] && meine[jahr].id !== id) throw new Error('Für ' + jahr + ' ist schon ein Finanzplaner verbunden.');
     const f = await api(DRIVE + '/files/' + id + '?fields=name');
     if (TEST) {
@@ -271,22 +320,27 @@
         method: 'POST', body: { name: grundname(f.name) + ' ' + jahr + ZUSATZ }
       });
       await api(DRIVE + '/files/' + kopie.id, { method: 'PATCH', body: { appProperties: Object.assign({ kostenApp: null }, markierung(jahr)) } });
+      setzeReihe('privat');
       return jahr;
     }
     const name = f.name.indexOf(String(jahr)) >= 0 ? f.name : f.name.trim() + ' ' + jahr;
     await api(DRIVE + '/files/' + id, { method: 'PATCH', body: { name: name, appProperties: markierung(jahr) } });
+    setzeReihe('privat');
     return jahr;
   }
 
   // Kopiert eine Datei und stellt sie auf ein neues Jahr ein.
   // leeren=true: alle Monatsbetraege und das Eingabe-Protokoll entfernen (fuer das Vorjahr als Vorlage).
-  async function kopieFuerJahr(quelleId, name, jahr, leeren) {
+  // extra: weitere Merkmale (z. B. { art: 'verein', reihe: … }); private Kopien verlieren sie bewusst.
+  async function kopieFuerJahr(quelleId, name, jahr, leeren, extra) {
     const kopie = await api(DRIVE + '/files/' + quelleId + '/copy?fields=id', {
       method: 'POST', body: { name: name }
     });
     const id = kopie.id;
     // Merkmal getrennt setzen (Kopien uebernehmen sonst das Merkmal der Quelle, z.B. ihr Jahr)
-    await api(DRIVE + '/files/' + id, { method: 'PATCH', body: { appProperties: Object.assign({ kostenApp: null, kostenAppTest: null }, markierung(jahr)) } });
+    await api(DRIVE + '/files/' + id, { method: 'PATCH', body: { appProperties: Object.assign({ kostenApp: null, kostenAppTest: null, art: null, reihe: null }, markierung(jahr), extra || {}) } });
+    artCache[id] = extra && extra.art === 'verein' ? 'verein' : 'privat';
+    eigenCache[id] = true;
     const info = await blaetter(id);
     const s = await struktur(id, info);
     const anfragen = [];
@@ -318,22 +372,90 @@
     return id;
   }
 
-  async function ersterFinanzplaner(name) {
+  // Neue Tabelle aus der passenden Vorlage. art: 'privat' (hoechstens einer je Nutzer) oder 'verein'.
+  async function ersterFinanzplaner(name, art) {
     const jahr = new Date().getFullYear();
+    const r = await reihenLaden();
+    if (art === 'verein') {
+      const id = await kopieFuerJahr(CFG.VEREIN_VORLAGE_ID, 'Vereinskasse - ' + name + ' ' + jahr + ZUSATZ, jahr, false, { art: 'verein' });
+      await api(DRIVE + '/files/' + id, { method: 'PATCH', body: { appProperties: { reihe: id } } });
+      await reihenLaden();
+      setzeReihe('verein:' + id);
+      return jahr;
+    }
+    if (r.privat) throw new Error('Du hast schon einen privaten Finanzplaner. Wechsle unter „Weitere“ zu ihm.');
     await kopieFuerJahr(CFG.VORLAGE_ID, 'Finanzplaner - ' + name + ' ' + jahr + ZUSATZ, jahr, false);
+    await reihenLaden();
+    setzeReihe('privat');
     return jahr;
   }
 
-  // Neues Jahr: Kopie des eigenen Vorjahres (bzw. des naechstliegenden Jahres) mit geleerten Betraegen.
+  // Neues Jahr der gewaehlten Reihe: Kopie des Vorjahres (bzw. des naechstliegenden Jahres) mit geleerten Betraegen.
+  // Vereinstabellen legt nur der Eigentuemer (Vereinskonto) an; die Freigaben fuer die Mitglieder werden mitkopiert,
+  // weil Google sie beim Kopieren nicht uebernimmt.
   async function jahrAnlegen(jahr) {
     const meine = await meineDateien();
+    const reihe = aktuell;
     if (meine[jahr]) return jahr;
     const vorhanden = Object.keys(meine).map(Number).sort((a, b) => a - b);
     if (!vorhanden.length) throw new Error('Noch kein Finanzplaner vorhanden.');
     const vorher = vorhanden.filter(j => j < jahr);
     const quelle = meine[vorher.length ? vorher[vorher.length - 1] : vorhanden[0]];
-    await kopieFuerJahr(quelle.id, grundname(quelle.name) + ' ' + jahr + ZUSATZ, jahr, true);
+    const verein = reihe && reihe.art === 'verein';
+    if (verein && !reihe.eigen) throw new Error('Ein neues Jahr für die Vereinstabelle legt der Kassenwart an (das Konto, dem die Tabelle gehört: ' + (reihe.besitzer || 'Vereinskonto') + ').');
+    const extra = verein ? { art: 'verein', reihe: (quelle.appProperties && quelle.appProperties.reihe) || quelle.id } : null;
+    const id = await kopieFuerJahr(quelle.id, grundname(quelle.name) + ' ' + jahr + ZUSATZ, jahr, true, extra);
+    if (verein) await freigabenKopieren(quelle.id, id);
     return jahr;
+  }
+
+  // Freigaben (Personen und Gruppen) einer Tabelle auf eine andere uebertragen, ohne E-Mail an die Leute.
+  async function freigabenKopieren(vonId, nachId) {
+    const d = await api(DRIVE + '/files/' + vonId + '/permissions?fields=permissions(type,role,emailAddress)');
+    for (const p of d.permissions || []) {
+      if (p.role === 'owner' || !p.emailAddress || (p.type !== 'user' && p.type !== 'group')) continue;
+      try {
+        await api(DRIVE + '/files/' + nachId + '/permissions?sendNotificationEmail=false', { method: 'POST', body: { type: p.type, role: p.role, emailAddress: p.emailAddress } });
+      } catch (err) { console.warn('Freigabe nicht übertragen', p.emailAddress, err); }
+    }
+  }
+
+  // ---------- Sperre fuer geteilte Vereinstabellen ----------
+  // Beim Eintragen liest die App die Zelle und schreibt die neue Summe zurueck. Tragen zwei Personen
+  // gleichzeitig in dieselbe Zelle ein, koennte ein Betrag verloren gehen. Deshalb setzt jeder vor dem
+  // Schreiben eine Markierung (Developer Metadata) in die Tabelle; sieht er dabei eine fremde, frische
+  // Markierung, nimmt er seine zurueck und versucht es kurz darauf erneut. Private Tabellen brauchen das nicht.
+  const SPERRE = 'finanzplanerSperre';
+  class Besetzt extends Error {}
+  const warte = ms => new Promise(r => setTimeout(r, ms));
+  async function sperreLoeschen(id, metaIds) {
+    if (!metaIds.length) return;
+    try { await batch(id, metaIds.map(m => ({ deleteDeveloperMetadata: { dataFilter: { developerMetadataLookup: { metadataId: m } } } }))); }
+    catch (err) { console.warn('Sperre nicht entfernt', err); }
+  }
+  async function mitSperre(id, fn) {
+    if ((await artVon(id)) !== 'verein') return fn();
+    const ich = Math.random().toString(36).slice(2, 10);
+    const ende = Date.now() + 25000;
+    for (;;) {
+      const r = await batch(id, [{ createDeveloperMetadata: { developerMetadata: {
+        metadataKey: SPERRE, metadataValue: ich + '|' + Date.now(), location: { spreadsheet: true }, visibility: 'DOCUMENT'
+      } } }]);
+      const meine = r.replies[0].createDeveloperMetadata.developerMetadata.metadataId;
+      const d = await api(SHEETS + '/' + id + '/developerMetadata:search', { method: 'POST', body: { dataFilters: [{ developerMetadataLookup: { metadataKey: SPERRE } }] } });
+      const andere = (d.matchedDeveloperMetadata || []).map(m => m.developerMetadata).filter(m => m.metadataId !== meine);
+      // Liegengebliebene Markierungen (z. B. App mitten im Eintragen geschlossen) nach 2 Minuten ignorieren und aufraeumen
+      const alt = andere.filter(m => Math.abs(Date.now() - Number(String(m.metadataValue).split('|')[1] || 0)) > 120000);
+      const frisch = andere.filter(m => alt.indexOf(m) < 0);
+      if (alt.length) await sperreLoeschen(id, alt.map(m => m.metadataId));
+      if (!frisch.length) {
+        try { return await fn(); }
+        finally { await sperreLoeschen(id, [meine]); }
+      }
+      await sperreLoeschen(id, [meine]);
+      if (Date.now() > ende) throw new Besetzt('Gerade trägt jemand anderes in die Vereinstabelle ein. Bitte in ein paar Sekunden noch einmal versuchen.');
+      await warte(400 + Math.random() * 1400);
+    }
   }
 
   // ---------- Eintraege ----------
@@ -343,8 +465,8 @@
     if (log) return log;
     const r = await batch(id, [{ addSheet: { properties: { title: LOG_BLATT, gridProperties: { frozenRowCount: 1 } } } }]);
     log = r.replies[0].addSheet.properties;
-    await api(SHEETS + '/' + id + '/values/' + encodeURIComponent(q(LOG_BLATT) + '!A1:J1') + '?valueInputOption=RAW', {
-      method: 'PUT', body: { values: [['Zeitpunkt', 'Monat', 'Posten', 'Betrag', 'Zeile', 'Spalte', 'Formel vorher', 'Formel nachher', 'Status', 'Fremdwährung']] }
+    await api(SHEETS + '/' + id + '/values/' + encodeURIComponent(q(LOG_BLATT) + '!A1:K1') + '?valueInputOption=RAW', {
+      method: 'PUT', body: { values: [['Zeitpunkt', 'Monat', 'Posten', 'Betrag', 'Zeile', 'Spalte', 'Formel vorher', 'Formel nachher', 'Status', 'Fremdwährung', 'Eingetragen von']] }
     });
     return log;
   }
@@ -352,7 +474,7 @@
   async function verlauf(id, info) {
     info = info || await blaetter(id);
     if (!info.blaetter.find(b => b.title === LOG_BLATT)) return [];
-    const [z] = await werteHolen(id, [q(LOG_BLATT) + '!A2:I'], 'UNFORMATTED_VALUE');
+    const [z] = await werteHolen(id, [q(LOG_BLATT) + '!A2:K'], 'UNFORMATTED_VALUE');
     const start = Math.max(0, z.length - 10);
     // Wie oft jeder Posten benutzt wurde (ein Eintrag mit Wiederholen zaehlt einmal, rueckgaengig gemachte nicht)
     const nutzung = {}, gesehen = {};
@@ -366,7 +488,7 @@
     const liste = z.slice(start).map((r, i) => ({
       logZeile: start + i + 2,
       zeit: typeof r[0] === 'number' ? ausSerial(r[0]).toISOString() : String(r[0] || ''),
-      monat: r[1], posten: r[2], betrag: Number(r[3]), storniert: r[8] === 'rueckgaengig'
+      monat: r[1], posten: r[2], betrag: Number(r[3]), storniert: r[8] === 'rueckgaengig', von: String(r[10] || '')
     })).filter(e => e.posten).reverse();
     liste.nutzung = nutzung;
     return liste;
@@ -452,7 +574,8 @@
     return n;
   }
 
-  async function hinzufuegen(id, e, status) {
+  function hinzufuegen(id, e, status) { return mitSperre(id, () => hinzufuegenOhneSperre(id, e, status)); }
+  async function hinzufuegenOhneSperre(id, e, status) {
     const betrag = Math.round(Number(e.betrag) * 100) / 100;
     if (!betrag || !isFinite(betrag)) throw new Error('Ungültiger Betrag.');
     const info = await blaetter(id);
@@ -526,14 +649,21 @@
     await batch(id, extra);
 
     await logBlatt(id, info);
-    await api(SHEETS + '/' + id + '/values/' + encodeURIComponent(q(LOG_BLATT) + '!A:J') + ':append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS', {
+    // In Vereinstabellen steht dazu, wer eingetragen hat (Spalte K)
+    const eingetragenVon = (await artVon(id)) === 'verein' ? (lies('kosten.name') || lies('kosten.email') || '') : '';
+    if (eingetragenVon) {
+      const [k1] = await werteHolen(id, [q(LOG_BLATT) + '!K1'], 'FORMATTED_VALUE');
+      if (!(k1[0] || [])[0]) await api(SHEETS + '/' + id + '/values/' + encodeURIComponent(q(LOG_BLATT) + '!K1') + '?valueInputOption=RAW', { method: 'PUT', body: { values: [['Eingetragen von']] } });
+    }
+    await api(SHEETS + '/' + id + '/values/' + encodeURIComponent(q(LOG_BLATT) + '!A:K') + ':append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS', {
       method: 'POST',
-      body: { values: plan.map(x => [jetztText(), s.monate[x.m - 1].name, p.name, betrag, p.zeile, x.spalte, "'" + x.vorher, "'" + String(x.nachher), '', wz]) }
+      body: { values: plan.map(x => [jetztText(), s.monate[x.m - 1].name, p.name, betrag, p.zeile, x.spalte, "'" + x.vorher, "'" + String(x.nachher), '', wz, eingetragenVon]) }
     });
     return { neueWerte: neueWerte, turnus: neuerTurnus, verlauf: await verlauf(id) };
   }
 
-  async function rueckgaengig(id, logZeile) {
+  function rueckgaengig(id, logZeile) { return mitSperre(id, () => rueckgaengigOhneSperre(id, logZeile)); }
+  async function rueckgaengigOhneSperre(id, logZeile) {
     const info = await blaetter(id);
     const s = await struktur(id, info);
     const [z] = await werteHolen(id, [q(LOG_BLATT) + '!A' + logZeile + ':J' + logZeile], 'UNFORMATTED_VALUE');
@@ -602,6 +732,8 @@
   // (doppelte Zeile), wird die alte Zeile nur entfernt, wenn sie in allen Monaten leer ist.
   // Betraege werden nie geloescht.
   async function namenAktualisieren(id) {
+    // Die Umbenennungen gelten nur fuer die private Vorlage
+    if ((await artVon(id)) === 'verein') return { umbenannt: [], entfernt: [], doppelt: [] };
     const s = await struktur(id);
     const alle = [].concat.apply([], s.bereiche.map(b => b.posten));
     const umbenennen = [], loeschen = [], ergebnis = { umbenannt: [], entfernt: [], doppelt: [] };
@@ -628,7 +760,7 @@
   // Nur pruefen: welche Posten der Vorlage fehlen in dieser Datei? (fuer den Hinweis beim Start)
   async function fehlendeAusVorlage(id) {
     const norm = kanon;
-    const [vorlage, eigene] = await Promise.all([struktur(CFG.VORLAGE_ID), struktur(id)]);
+    const [vorlage, eigene] = await Promise.all([struktur(await vorlageVon(id)), struktur(id)]);
     const fehlend = [];
     vorlage.bereiche.forEach(vb => {
       const b = eigene.bereiche.find(x => norm(x.name) === norm(vb.name));
@@ -640,8 +772,9 @@
 
   async function vorlageAbgleichen(id) {
     await namenAktualisieren(id);
-    const vorlage = await struktur(CFG.VORLAGE_ID);
-    const vorlageZeilen = await werteHolen(CFG.VORLAGE_ID, [q(vorlage.blatt.title) + '!A1:Z300'], 'FORMULA');
+    const vorlageId = await vorlageVon(id);
+    const vorlage = await struktur(vorlageId);
+    const vorlageZeilen = await werteHolen(vorlageId, [q(vorlage.blatt.title) + '!A1:Z300'], 'FORMULA');
     const ergebnis = { neu: [], fehlendeBereiche: [] };
     const norm = kanon;
 
@@ -975,7 +1108,7 @@
 
   window.Google = {
     TEST, anmelden, abmelden, tokenAusAdresse, token, restMinuten, nutzer, NichtAngemeldet,
-    meineDateien, kandidaten, verbinden, ersterFinanzplaner, jahrAnlegen,
+    meineDateien, reihen, setzeReihe, aktuelleReihe, Besetzt, kandidaten, verbinden, ersterFinanzplaner, jahrAnlegen,
     SKRIPT_SCOPE, struktur, verlauf, blaetter, hinzufuegen, taktAusTurnus, turnusSkriptVersion, turnusSkriptEinrichten, turnusSkriptMerken, rueckgaengig, wechselkurs, vorlageAbgleichen, namenAktualisieren, kontenAuswahl, kontenAuswahlSpeichern, normName, fehlendeAusVorlage, sparziele, finanzierungLaden, finanzierungSpeichern, altesBlattEntfernen, immobilienErsparnis, hinweiseSchreiben
   };
 })();

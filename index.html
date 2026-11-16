@@ -22,6 +22,7 @@
     <h1 id="titel">Finanzplaner</h1>
     <select id="jahr" hidden aria-label="Jahr"></select>
   </div>
+  <div class="sub tabelleName" id="tabelleName" hidden></div>
 
   <!-- Anmeldung -->
   <div class="card" id="anmeldung" hidden>
@@ -33,13 +34,17 @@
 
   <!-- Erster Start: bestehende Tabelle verbinden oder neu anlegen -->
   <div class="card" id="einrichten" hidden>
-    <h2>Deinen Finanzplaner einrichten</h2>
+    <button class="link zurueck" id="einrichtenZurueck" hidden>‹ Weitere</button>
+    <h2 id="einrichtenTitel">Deinen Finanzplaner einrichten</h2>
+    <div class="hinweisBox" id="jahrHinweisEinrichten" hidden></div>
+    <div class="segment" id="artWahl"><button data-wert="privat" id="artPrivat">Privat</button><button data-wert="verein">Verein</button></div>
+    <div class="sub" id="artText"></div>
     <div id="kandidatenBox" hidden>
       <div class="sub" id="kandidatenText">Diese Tabellen in deinem Drive könnten dein Finanzplaner sein. Tippe auf „Verbinden“, um sie zu nutzen:</div>
       <ul id="kandidaten"></ul>
       <div class="sub" style="margin-top:12px">Oder lege einen neuen, leeren Finanzplaner an:</div>
     </div>
-    <label for="name">Dein Name</label>
+    <label for="name" id="nameLabel">Dein Name</label>
     <input id="name" autocomplete="given-name">
     <button class="haupt" id="neuAnlegen">Neuen Finanzplaner anlegen</button>
     <div class="meldung" id="meldungEinrichten"></div>
@@ -113,9 +118,13 @@
 
   <!-- Weitere: Immobilien und Einstellungen -->
   <div id="weitere" hidden>
-    <div class="card menue">
+    <div class="card menue" id="menueImmobilien">
       <button class="eintrag" id="zuImmobilien"><span><b>Immobilien</b><span class="sub">Kredite, Zinsen und Tilgung</span></span><span class="pfeil">›</span></button>
     </div>
+    <h2 class="abschnitt">Tabellen</h2>
+    <div class="card menue" id="tabellenListe"></div>
+    <div class="sub abschnittText" id="jahrHinweis"></div>
+    <div class="sub abschnittText" id="vereinHinweis" hidden>Mitglieder hinzufügen oder entfernen: Vereinstabelle unten über „Tabelle öffnen“ öffnen und in Google Sheets auf „Freigeben“ tippen. Jedes Mitglied braucht außerdem einen Zugang zur App (Testnutzer).</div>
     <h2 class="abschnitt">Einstellungen</h2>
     <div class="card menue">
       <button class="eintrag" id="zuKonten"><span><b>Konten-Auswahl</b><span class="sub" id="kontenZahl">Wähle, welche Posten du in der App siehst</span></span><span class="pfeil">›</span></button>
@@ -124,28 +133,33 @@
         <div class="segment" id="darstellung"><button data-wert="hell">Hell</button><button data-wert="dunkel">Dunkel</button><button data-wert="system">System</button></div>
       </div>
     </div>
+    <h2 class="abschnitt">Hilfe</h2>
+    <div class="card menue">
+      <button class="eintrag" id="zuFeedback"><span><b>Feedback oder Fehler melden</b><span class="sub">Etwas klappt nicht oder du hast eine Idee?</span></span><span class="pfeil">›</span></button>
+    </div>
   </div>
 
   <!-- Konten-Auswahl -->
   <div id="kontenAuswahl" hidden>
     <div class="card">
       <button class="link zurueck" id="kontenZurueck">‹ Weitere</button>
+      <div class="meldung" id="kontenNurLesen" hidden></div>
       <div class="sub">Schalte aus, was du nicht brauchst. Ausgeschaltete Posten verschwinden nur aus der Auswahl beim Eintragen. Beträge bleiben erhalten und zählen weiter mit. Neue Posten aus der Vorlage sind erst einmal eingeschaltet.</div>
       <label class="check"><input type="checkbox" id="kontenTabelle"> Ausgeschaltete Posten auch in der Tabelle ausblenden</label>
       <div class="sub">Die Zeilen werden in der Tabelle nur versteckt, nicht gelöscht. Summen rechnen weiter.</div>
     </div>
     <div id="kontenListe"></div>
-    <div class="card">
+    <div class="card" id="kontenSpeichernKarte">
       <button class="haupt" id="kontenSpeichern">Speichern</button>
       <div class="meldung" id="meldungKonten"></div>
     </div>
   </div>
 
   <div class="fuss" id="fuss" hidden>
-    <a id="tabelleLink" target="_blank" rel="noopener">Meine Tabelle öffnen</a>
+    <a id="tabelleLink" target="_blank" rel="noopener">Tabelle öffnen</a>
     <button class="link" id="vorlageAbgleich">Neue Zeilen aus Vorlage übernehmen</button>
     <button class="link" id="abmelden">Abmelden</button>
-    <span class="sub">Version 2026-11-15</span>
+    <span class="sub">Version 2026-11-16</span>
   </div>
 </main>
 
@@ -155,6 +169,20 @@
     <h2 id="neuigkeitenTitel">Neu in der App</h2>
     <ul id="neuigkeitenListe"></ul>
     <button class="haupt" id="neuigkeitenOk">Verstanden</button>
+  </div>
+</div>
+
+<!-- Feedback und Fehler melden -->
+<div id="feedback" class="overlay" hidden>
+  <div class="card dialog" role="dialog" aria-labelledby="feedbackTitel">
+    <h2 id="feedbackTitel">Feedback oder Fehler melden</h2>
+    <div class="segment" id="feedbackArt"><button data-wert="fehler">Fehler</button><button data-wert="idee">Idee</button><button data-wert="sonstiges">Sonstiges</button></div>
+    <textarea id="feedbackText" rows="6"></textarea>
+    <div class="sub" id="feedbackInfo" style="white-space:pre-line;margin-top:8px;font-size:13px"></div>
+    <button class="haupt" id="feedbackMail">Per E-Mail senden</button>
+    <button class="zweit" id="feedbackKopieren">Text kopieren</button>
+    <button class="zweit" id="feedbackAbbrechen">Schließen</button>
+    <div class="meldung" id="meldungFeedback"></div>
   </div>
 </div>
 
@@ -210,6 +238,7 @@
 <script src="ersparnisblock.js"></script>
 <script src="finanzierung.js"></script>
 <script src="neuigkeiten.js"></script>
+<script src="feedback.js"></script>
 <script src="app.js"></script>
 </body>
 </html>
